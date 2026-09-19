@@ -33,7 +33,7 @@ flutter:
 #   flutter pub get && dart run flutter_launcher_icons
 flutter_launcher_icons:
   android: true
-  ios: true
+  ios: false
   remove_alpha_ios: true
   image_path: "assets/icon.png"
   adaptive_icon_background: "#0F172A"
