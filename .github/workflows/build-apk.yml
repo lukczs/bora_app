@@ -1,0 +1,59 @@
+# Gera o APK do Bora na nuvem, sem instalar Flutter no computador.
+# Antes: Settings > Secrets and variables > Actions > New repository secret
+#   SUPABASE_URL       = https://SEU-PROJETO.supabase.co
+#   SUPABASE_ANON_KEY  = chave "anon public" (Settings > API no Supabase)
+# Depois: aba Actions > "Gerar APK" > Run workflow. O APK sai em "Artifacts".
+name: Gerar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Criar a parte Android do projeto
+        run: |
+          mkdir -p /tmp/keep
+          cp -r lib assets pubspec.yaml /tmp/keep/
+          flutter create --org br.com.bora --project-name bora --platforms android .
+          rm -rf lib test
+          cp -r /tmp/keep/lib /tmp/keep/assets .
+          cp /tmp/keep/pubspec.yaml .
+
+      - name: Permissões (internet e localização) e nome do app
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i '0,/<application/s##<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>\n    <application#' $M
+          sed -i 's#android:label="[^"]*"#android:label="Bora"#' $M
+          cat $M
+
+      - run: flutter pub get
+      - name: Gerar o ícone do app
+        run: dart run flutter_launcher_icons
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Gerar APK
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bora-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
