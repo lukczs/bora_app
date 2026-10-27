@@ -70,7 +70,40 @@ No mesmo painel, "Test phone numbers" aceita pares `5561999990001=123456` para
 entrar sem gastar SMS. O botão "Entrar com meu celular" já usa esse fluxo.
 Antes de lançar, remova a tela `dev_login_screen.dart` e o botão da tela inicial.
 
-## 5. O que ainda é simulado ou não existe
+## 5. Migração 0002: carona universitária
+
+Se o banco já tem o `schema.sql`, rode **por cima** o `supabase/0002_carona_universitaria.sql`
+no SQL Editor (uma vez só; não apaga dados). Ela traz:
+
+- **Remover passageiro:** na tela "Minha viagem", cada passageiro tem "Remover da viagem".
+  A vaga volta, a pessoa vê o aviso (e o motivo, se houver) e não consegue reservar a mesma viagem de novo.
+- **Chat por viagem:** botão de conversa para o motorista (quando há reserva) e para o passageiro.
+  Mensagens em tempo real; só motorista e passageiros com reserva ativa leem e escrevem.
+  Se as mensagens não chegarem na hora: Database > Publications > `supabase_realtime` e confira se
+  `ride_messages` está marcada.
+- **Comunidade com e-mail institucional:** ao criar, escolha "Só com e-mail institucional" e informe
+  o domínio (ex.: `aluno.unb.br`). Quem entra precisa do código de convite + confirmar um e-mail desse
+  domínio. Cada e-mail confirmado serve a uma conta só, e vale para outras comunidades do mesmo domínio.
+
+### Envio do código por e-mail
+
+Enquanto `app_config.email_dev_echo = true` (padrão), o código aparece na própria tela do app,
+marcado como "Modo dev". Para mandar e-mail de verdade:
+
+1. Crie uma conta em resend.com e gere uma API key. (Sem domínio próprio verificado, o Resend
+   só entrega para o e-mail da própria conta; para testes com a turma, verifiquem um domínio.)
+2. Supabase > Database > Extensions: habilite **pg_net**.
+3. SQL Editor: `select vault.create_secret('SUA_CHAVE_RESEND', 'resend_api_key');`
+4. Se tiver domínio verificado: `update app_config set email_from = 'Bora <nao-responda@seudominio.com>';`
+5. Para parar de mostrar o código na tela: `update app_config set email_dev_echo = false;`
+
+### Projeto sem pausar
+
+O workflow `.github/workflows/keep-alive.yml` chama `keep_alive()` toda segunda e quinta,
+usando os mesmos secrets do build. Rode uma vez à mão (Actions > "Manter Supabase ativo")
+para conferir que fica verde.
+
+## 6. O que ainda é simulado ou não existe
 
 - Foto do documento e selfie: tocar no cartão "tira a foto". Não há upload.
 - Aprovação de identidade: automática enquanto `app_config.auto_approve_identity = true`.
@@ -80,15 +113,16 @@ Antes de lançar, remova a tela `dev_login_screen.dart` e o botão da tela inici
 - Rotas: menor caminho no grafo de paradas (`stops` + `stop_links`), linhas retas no mapa.
   Para acrescentar paradas, insira em `stops` e ligue em `stop_links`.
 - Pagamento: o app mostra o rateio; o acerto é direto com o motorista.
-- Tempo real: as telas atualizam ao puxar para baixo, não sozinhas.
+- Tempo real: só o chat. As outras telas atualizam ao puxar para baixo.
 - Ainda não feito: viagem ao vivo no mapa, confirmação de embarque pelo motorista,
   link do contato de emergência, SOS, avaliações, histórico, denúncia e bloqueio,
-  notificações, exclusão de conta, painel admin.
+  notificações push, exclusão de conta, painel admin.
 
 ## Estrutura
 
 ```
 supabase/schema.sql      banco inteiro: tabelas, regras (funções), RLS e paradas iniciais
+supabase/0002_*.sql      migração: remover passageiro, chat, comunidade por e-mail
 lib/
   app/        env (chaves), providers, rotas com redirecionamento por status
   data/       bora_store.dart (estado + TODAS as chamadas ao Supabase), grafo, erros
