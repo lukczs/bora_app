@@ -42,6 +42,13 @@ jobs:
           rm -rf lib test
           cp -r /tmp/keep/lib /tmp/keep/assets .
           cp /tmp/keep/pubspec.yaml .
+          # O "lint vital" do Android quebra analisando o plugin do Google Maps (bug do lint).
+          # Desliga só essa checagem; o código Dart continua passando pelo flutter analyze.
+          if [ -f android/build.gradle.kts ]; then
+            printf '\nsubprojects {\n    tasks.matching { it.name.startsWith("lintVital") }.configureEach { enabled = false }\n}\n' >> android/build.gradle.kts
+          else
+            printf '\nsubprojects {\n    tasks.matching { it.name.startsWith("lintVital") }.configureEach { enabled = false }\n}\n' >> android/build.gradle
+          fi
 
       - name: Permissões (internet e localização) e nome do app
         run: |
