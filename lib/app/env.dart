@@ -11,6 +11,12 @@ class Env {
     defaultValue: 'COLE_AQUI_A_CHAVE_ANON',
   );
 
+  /// Token da OpenRouteService (rotas e endereços). Vazio = recursos de rota desligados.
+  static const orsApiKey = String.fromEnvironment('ORS_API_KEY');
+
+  /// Liga o botão "Continuar com Google" (precisa do provedor Google configurado no Supabase).
+  static const googleAuthEnabled = bool.fromEnvironment('GOOGLE_AUTH');
+
   static bool get isConfigured =>
       supabaseUrl.startsWith('https://') && !supabaseAnonKey.startsWith('COLE_AQUI');
 }

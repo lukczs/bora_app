@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../app/providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/bora_button.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/widgets/cards.dart';
+import '../../core/widgets/step_scaffold.dart';
 import '../../domain/models.dart';
 
 const communityKindLabel = {
@@ -24,22 +26,25 @@ class CommunitiesTab extends ConsumerWidget {
     final store = ref.watch(storeProvider);
     final mine = store.myCommunities;
 
-    return SafeArea(
-      child: RefreshIndicator(
-        color: AppColors.green,
-        onRefresh: store.refreshCommunities,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+    return PageScaffold(
+      title: 'Comunidades',
+      onRefresh: store.refreshCommunities,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Space.page),
+          child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Comunidades', style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 8),
             const Text(
-                'Grupos de pessoas que já se conhecem. Quem divide uma comunidade com você aparece primeiro nas buscas.'),
-            const SizedBox(height: 20),
-            BoraButton(label: 'Entrar com código de convite', onPressed: () => context.push('/community/join')),
-            const SizedBox(height: 12),
-            BoraButton(label: 'Criar comunidade', secondary: true, onPressed: () => context.push('/community/new')),
-            const SizedBox(height: 24),
+                'Grupos de pessoas que já se conhecem. Quem divide uma comunidade com você aparece primeiro nas buscas.',
+                style: AppText.body),
+            const SizedBox(height: Space.md),
+            Row(children: [
+              Expanded(child: BoraButton(label: 'Entrar com código', icon: Icons.vpn_key_outlined, onPressed: () => context.push('/community/join'))),
+              const SizedBox(width: Space.sm),
+              Expanded(child: BoraButton(label: 'Criar', icon: Icons.add, kind: BoraButtonKind.secondary, onPressed: () => context.push('/community/new'))),
+            ]),
+            const SizedBox(height: Space.lg),
             if (mine.isEmpty)
               const EmptyState(
                 icon: Icons.groups_outlined,
@@ -56,7 +61,7 @@ class CommunitiesTab extends ConsumerWidget {
                       children: [
                         Expanded(
                           child: Text(c.name,
-                              style: const TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800)),
+                              style: AppText.subtitle),
                         ),
                         if (c.myStatus == MemberStatus.pending)
                           const Pill('Aguardando aprovação', color: AppColors.warning)
@@ -71,11 +76,12 @@ class CommunitiesTab extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: Space.sm),
             ],
           ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

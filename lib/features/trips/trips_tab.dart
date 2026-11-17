@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/format.dart';
+import '../../core/widgets/step_scaffold.dart';
 import '../../core/widgets/cards.dart';
 import '../../data/bora_store.dart';
 import '../../domain/models.dart';
@@ -15,46 +17,35 @@ class TripsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final store = ref.watch(storeProvider);
-
-    return SafeArea(
-      child: RefreshIndicator(
-        color: AppColors.green,
-        onRefresh: store.refreshTrips,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-          children: [
-            Text('Viagens', style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 4),
-            const Text('Puxe para baixo para atualizar.'),
-            const SizedBox(height: 22),
-            Text('Minhas reservas', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 10),
-            if (store.myBookings.isEmpty)
-              const EmptyState(
-                icon: Icons.confirmation_number_outlined,
-                title: 'Você ainda não reservou nenhuma carona',
-                text: 'Na aba Início, toque em "Buscar carona" para ver quem passa perto de você.',
-              ),
-            for (final b in store.myBookings) ...[
-              _BookingCard(booking: b, store: store),
-              const SizedBox(height: 10),
-            ],
-            const SizedBox(height: 22),
-            Text('Viagens que eu ofereço', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 10),
-            if (store.myRides.isEmpty)
-              const EmptyState(
-                icon: Icons.directions_car_outlined,
-                title: 'Você ainda não publicou viagens',
-                text: 'Na aba Início, mude para "Vou dirigir" e publique o seu trajeto.',
-              ),
-            for (final r in store.myRides) ...[
-              _RideCard(ride: r, store: store),
-              const SizedBox(height: 10),
-            ],
-          ],
-        ),
-      ),
+    return PageScaffold(
+      title: 'Viagens',
+      onRefresh: store.refreshTrips,
+      children: [
+        const SectionHeader('Minhas reservas'),
+        if (store.myBookings.isEmpty)
+          const EmptyState(
+            icon: Icons.confirmation_number_outlined,
+            title: 'Nenhuma reserva ainda',
+            text: 'No Início, toque em "Para onde vamos?" para ver quem passa perto de você.',
+          ),
+        for (final b in store.myBookings)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.xs),
+            child: _BookingCard(booking: b, store: store),
+          ),
+        const SectionHeader('Viagens que eu ofereço'),
+        if (store.myRides.isEmpty)
+          const EmptyState(
+            icon: Icons.directions_car_outlined,
+            title: 'Nenhuma viagem publicada',
+            text: 'No Início, toque em "Oferecer carona" e diga por onde você já vai passar.',
+          ),
+        for (final r in store.myRides)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.xs),
+            child: _RideCard(ride: r, store: store),
+          ),
+      ],
     );
   }
 }
@@ -83,15 +74,15 @@ class _BookingCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(ride == null ? 'Reserva' : formatWhen(ride.departureAt),
-                    style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w800)),
+                    style: AppText.subtitle),
               ),
               Pill(text, color: color),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: Space.sm),
           RouteSummary(from: store.stop(booking.pickupStopId).name, to: store.stop(booking.dropoffStopId).name),
           const SizedBox(height: 10),
-          Text('${ride == null ? '' : 'Com ${ride.driver.firstName}, '}${formatCents(booking.priceCents)}'),
+          Text('${ride == null ? '' : 'Com ${ride.driver.firstName} · '}${formatCents(booking.priceCents)}', style: AppText.caption),
         ],
       ),
     );
@@ -122,14 +113,17 @@ class _RideCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(formatWhen(ride.departureAt),
-                    style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w800)),
+                    style: AppText.subtitle),
               ),
               Pill(text, color: color),
             ],
           ),
-          if (ride.recurringDays.isNotEmpty) Text(formatRecurring(ride.recurringDays)),
-          const SizedBox(height: 12),
-          RouteSummary(from: store.stop(ride.originStopId).name, to: store.stop(ride.destinationStopId).name),
+          if (ride.recurringDays.isNotEmpty) Text(formatRecurring(ride.recurringDays), style: AppText.caption),
+          const SizedBox(height: Space.sm),
+          RouteSummary(
+            from: ride.originLabel ?? store.stop(ride.originStopId).name,
+            to: ride.destLabel ?? store.stop(ride.destinationStopId).name,
+          ),
         ],
       ),
     );

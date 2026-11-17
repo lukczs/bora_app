@@ -1,16 +1,26 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../app/providers.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/utils/format.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/bora_map.dart';
+import '../../core/widgets/cards.dart';
 import '../../core/widgets/step_scaffold.dart';
+import '../../data/bora_store.dart';
+import '../../data/errors.dart';
 import '../../domain/models.dart';
+import '../places/place_picker.dart';
 
-enum _Mode { passenger, driver }
+/// Etapas da carona, sempre num bottom sheet sobre o mapa (padrão Uber).
+enum _Stage { idle, results, offer, tracking }
 
 class MapTab extends ConsumerStatefulWidget {
   const MapTab({super.key});
@@ -20,54 +30,370 @@ class MapTab extends ConsumerStatefulWidget {
 
 class _MapTabState extends ConsumerState<MapTab> {
   final _map = MapController();
-  _Mode _mode = _Mode.passenger;
+  _Stage _stage = _Stage.idle;
+
+  // Camadas dinâmicas
+  static const _stopsMinZoom = 15.0; // paradas só aparecem de perto (estilo Moovit)
+  List<Stop> _visibleStops = const [];
+  List<NearbyDriver> _drivers = const [];
+  Timer? _cameraDebounce;
+  Timer? _driversTimer;
+  Timer? _trackTimer;
+  MapCamera? _camera;
+
+  // Fluxo
+  Place? _origin;
+  Place? _destination;
+  List<RideOffer> _offers = const [];
+  RideOffer? _selected;
+  List<LatLng> _selectedRoute = const [];
+  bool _busy = false;
+  Booking? _trackingBooking;
+  RideTracking? _tracking;
+  List<LatLng> _trackingRoute = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _driversTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadDrivers());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDrivers());
+  }
 
   @override
   void dispose() {
+    _cameraDebounce?.cancel();
+    _driversTimer?.cancel();
+    _trackTimer?.cancel();
     _map.dispose();
     super.dispose();
+  }
+
+  // ------------------------------------------------------------------
+  // Camadas
+  // ------------------------------------------------------------------
+  bool _zoomedIn = false;
+
+  void _onCamera(MapCamera cam, bool gesture) {
+    _camera = cam;
+    final zoomed = cam.zoom >= _stopsMinZoom;
+    if (zoomed != _zoomedIn) setState(() => _zoomedIn = zoomed);
+    _cameraDebounce?.cancel();
+    _cameraDebounce = Timer(const Duration(milliseconds: 400), _loadStops);
+  }
+
+  Future<void> _loadStops() async {
+    final cam = _camera;
+    if (cam == null || !mounted) return;
+    if (cam.zoom < _stopsMinZoom) {
+      if (_visibleStops.isNotEmpty) setState(() => _visibleStops = const []);
+      return;
+    }
+    try {
+      final stops = await ref.read(storeProvider).stopsInView(cam.visibleBounds);
+      if (mounted) setState(() => _visibleStops = stops);
+    } catch (_) {}
+  }
+
+  Future<void> _loadDrivers() async {
+    if (!mounted || _stage == _Stage.tracking) return;
+    try {
+      final center = _camera?.center ?? ref.read(storeProvider).position;
+      final d = await ref.read(storeProvider).nearbyDrivers(center);
+      if (mounted) setState(() => _drivers = d);
+    } catch (_) {}
   }
 
   Future<void> _centerOnMe() async {
     final store = ref.read(storeProvider);
     final real = await store.locate(askPermission: true);
     if (!mounted) return;
-    _map.move(store.position, 13.5);
-    if (!real) {
-      showBoraError(context, 'Sem acesso ao GPS. Usando a Rodoviária do Plano como ponto de partida.');
+    _map.move(store.position, 15.5);
+    if (!real) showBoraError(context, 'Sem acesso ao GPS. Usando a Rodoviária do Plano como referência.');
+  }
+
+  void _fit(List<LatLng> pts) {
+    if (pts.length < 2) return;
+    final bottom = MediaQuery.sizeOf(context).height * .48;
+    _map.fitCamera(CameraFit.bounds(
+      bounds: LatLngBounds.fromPoints(pts),
+      padding: EdgeInsets.fromLTRB(48, MediaQuery.paddingOf(context).top + 80, 48, bottom),
+    ));
+  }
+
+  // ------------------------------------------------------------------
+  // Fluxo do passageiro
+  // ------------------------------------------------------------------
+  Future<void> _chooseDestination({bool onMap = false}) async {
+    final store = ref.read(storeProvider);
+    final p = onMap
+        ? await MapPickerScreen.open(context, title: 'Para onde vamos?', start: _camera?.center)
+        : await PlaceSearchScreen.open(context);
+    if (p == null || !mounted) return;
+    _origin ??= Place(label: 'Minha localização', point: store.position);
+    _destination = p;
+    await _search();
+  }
+
+  Future<void> _changeOrigin() async {
+    final p = await PlaceSearchScreen.open(context, title: 'De onde você sai?', hint: 'Buscar ponto de partida', allowMyLocation: true);
+    if (p == null || !mounted) return;
+    _origin = p;
+    if (_destination != null) await _search();
+  }
+
+  Future<void> _search() async {
+    final from = _origin, to = _destination;
+    if (from == null || to == null) return;
+    setState(() {
+      _busy = true;
+      _stage = _Stage.results;
+      _selected = null;
+      _selectedRoute = const [];
+    });
+    _fit([from.point, to.point]);
+    try {
+      final offers = await ref.read(storeProvider).searchNear(from: from.point, to: to.point);
+      if (mounted) setState(() => _offers = offers);
+    } catch (e) {
+      if (mounted) showBoraError(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
-  void _showStop(Stop stop) {
-    final store = ref.read(storeProvider);
-    final passing =
-        store.openRidePaths.where((path) => path.contains(stop.id) && path.last != stop.id).length;
+  Future<void> _select(RideOffer o) async {
+    setState(() {
+      _selected = o;
+      _stage = _Stage.offer;
+    });
+    try {
+      final route = await ref.read(storeProvider).rideRoute(o.ride.id);
+      if (!mounted) return;
+      setState(() => _selectedRoute = route);
+      _fit([
+        if (_origin != null) _origin!.point,
+        if (o.pickup != null) o.pickup!.point,
+        if (o.dropoff != null) o.dropoff!.point,
+        if (_destination != null) _destination!.point,
+      ]);
+    } catch (_) {}
+  }
 
+  Future<void> _book() async {
+    final o = _selected;
+    if (o == null) return;
+    setState(() => _busy = true);
+    try {
+      final store = ref.read(storeProvider);
+      final id = await store.bookSeat(rideId: o.ride.id, pickupStopId: o.pickupStopId, dropoffStopId: o.dropoffStopId);
+      final booking = store.myBooking(id);
+      if (!mounted) return;
+      if (booking != null) _startTracking(booking);
+    } catch (e) {
+      if (mounted) showBoraError(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _reset() {
+    _trackTimer?.cancel();
+    setState(() {
+      _stage = _Stage.idle;
+      _destination = null;
+      _origin = null;
+      _offers = const [];
+      _selected = null;
+      _selectedRoute = const [];
+      _trackingBooking = null;
+      _tracking = null;
+      _trackingRoute = const [];
+    });
+    _loadDrivers();
+  }
+
+  // ------------------------------------------------------------------
+  // Acompanhar
+  // ------------------------------------------------------------------
+  Future<void> _startTracking(Booking b) async {
+    _trackTimer?.cancel();
+    setState(() {
+      _trackingBooking = b;
+      _stage = _Stage.tracking;
+      _drivers = const [];
+    });
+    try {
+      final route = await ref.read(storeProvider).rideRoute(b.rideId);
+      if (mounted) setState(() => _trackingRoute = route);
+      final pickup = ref.read(storeProvider).stop(b.pickupStopId).point;
+      _fit([pickup, ...route.take(1)]);
+    } catch (_) {}
+    await _poll();
+    _trackTimer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
+  }
+
+  Future<void> _poll() async {
+    final b = _trackingBooking;
+    if (b == null) return;
+    try {
+      final t = await ref.read(storeProvider).trackRide(b.rideId);
+      if (mounted) setState(() => _tracking = t);
+    } catch (_) {}
+  }
+
+  // ------------------------------------------------------------------
+  // UI
+  // ------------------------------------------------------------------
+  @override
+  Widget build(BuildContext context) {
+    final store = ref.watch(storeProvider);
+    final upcoming = store.myBookings
+        .where((b) => (b.status == BookingStatus.reserved || b.status == BookingStatus.boarded) && b.ride != null)
+        .toList()
+      ..sort((a, b) => a.ride!.departureAt.compareTo(b.ride!.departureAt));
+
+    final markers = <Marker>[
+      for (final s in _visibleStops)
+        if (_stage == _Stage.idle) stopMarker(s.point, onTap: () => _showStop(s)),
+      if (_stage != _Stage.tracking)
+        for (final d in _drivers) carMarker(d.point, heading: d.heading, mine: d.isMyRide),
+      youAreHereMarker(store.position),
+      if (_origin != null && _stage != _Stage.idle && _origin!.label != 'Minha localização')
+        Marker(point: _origin!.point, width: 14, height: 14, child: Container(decoration: const BoxDecoration(color: AppColors.text, shape: BoxShape.circle))),
+      if (_destination != null && _stage != _Stage.idle) destinationMarker(_destination!.point),
+      if (_selected?.pickup != null) stopMarker(_selected!.pickup!.point, highlight: true, label: 'Embarque · ${_selected!.pickup!.name}'),
+      if (_selected?.dropoff != null) stopMarker(_selected!.dropoff!.point, highlight: true, label: 'Desembarque'),
+      if (_stage == _Stage.tracking && _trackingBooking != null)
+        stopMarker(store.stop(_trackingBooking!.pickupStopId).point, highlight: true, label: 'Seu embarque'),
+      if (_stage == _Stage.tracking && _tracking?.driverPoint != null)
+        carMarker(_tracking!.driverPoint!, heading: _tracking!.heading, mine: true),
+    ];
+
+    final polylines = <Polyline>[
+      if (_selectedRoute.isNotEmpty) ...boraRoute(_selectedRoute),
+      if (_trackingRoute.isNotEmpty) ...boraRoute(_trackingRoute),
+    ];
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          BoraMap(
+            controller: _map,
+            center: store.position,
+            zoom: 14,
+            markers: markers,
+            polylines: polylines,
+            onPositionChanged: _onCamera,
+          ),
+          // Topo
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + Space.sm,
+            left: Space.md,
+            right: Space.md,
+            child: Row(
+              children: [
+                if (_stage != _Stage.idle)
+                  RoundIconButton(
+                    icon: Icons.arrow_back,
+                    onPressed: () {
+                      if (_stage == _Stage.offer) {
+                        setState(() {
+                          _stage = _Stage.results;
+                          _selected = null;
+                          _selectedRoute = const [];
+                        });
+                      } else {
+                        _reset();
+                      }
+                    },
+                  )
+                else
+                  _TopChip(
+                    text: store.me?.firstName.isNotEmpty == true ? 'Olá, ${store.me!.firstName}' : 'Bora',
+                    sub: store.activeDriverRide != null ? 'Compartilhando localização' : null,
+                  ),
+                const Spacer(),
+                RoundIconButton(icon: Icons.my_location, tooltip: 'Minha localização', onPressed: _centerOnMe),
+              ],
+            ),
+          ),
+          if (_stage == _Stage.idle && !_zoomedIn)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 72,
+              left: 0,
+              right: 0,
+              child: const Center(child: _Hint('Aproxime o mapa para ver as paradas')),
+            ),
+          Align(alignment: Alignment.bottomCenter, child: _sheet(store, upcoming)),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheet(BoraStore store, List<Booking> upcoming) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      transitionBuilder: (c, a) => SlideTransition(
+          position: Tween(begin: const Offset(0, .08), end: Offset.zero).animate(a), child: FadeTransition(opacity: a, child: c)),
+      child: switch (_stage) {
+        _Stage.idle => _IdleSheet(
+            key: const ValueKey('idle'),
+            upcoming: upcoming.isEmpty ? null : upcoming.first,
+            stopName: upcoming.isEmpty ? null : store.stop(upcoming.first.pickupStopId).name,
+            onWhereTo: () => _chooseDestination(),
+            onPickOnMap: () => _chooseDestination(onMap: true),
+            onTrack: upcoming.isEmpty ? null : () => _startTracking(upcoming.first),
+            onOffer: () => context.push(store.myVehicles.isEmpty ? '/vehicle' : '/publish'),
+            activeRide: store.activeDriverRide,
+          ),
+        _Stage.results => _ResultsSheet(
+            key: const ValueKey('results'),
+            origin: _origin,
+            destination: _destination,
+            offers: _offers,
+            loading: _busy,
+            onChangeOrigin: _changeOrigin,
+            onChangeDestination: () => _chooseDestination(),
+            onSelect: _select,
+          ),
+        _Stage.offer => _OfferSheet(key: const ValueKey('offer'), offer: _selected!, loading: _busy, onBook: _book),
+        _Stage.tracking => _TrackingSheet(
+            key: const ValueKey('tracking'),
+            booking: store.myBooking(_trackingBooking!.id) ?? _trackingBooking!,
+            tracking: _tracking,
+            pickupName: store.stop(_trackingBooking!.pickupStopId).name,
+            onClose: _reset,
+            onDetails: () => context.push('/booking/${_trackingBooking!.id}'),
+          ),
+      },
+    );
+  }
+
+  void _showStop(Stop stop) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.surface,
-      showDragHandle: true,
       builder: (sheet) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+        padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.lg),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(stop.name, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 4),
-            Text(stop.region),
-            const SizedBox(height: 12),
-            Text(passing == 0
-                ? 'Nenhuma viagem aberta passa por aqui agora.'
-                : passing == 1
-                    ? '1 viagem aberta passa por aqui.'
-                    : '$passing viagens abertas passam por aqui.'),
-            const SizedBox(height: 18),
+            Text(stop.name, style: AppText.title),
+            if (stop.region.isNotEmpty) Text(stop.region, style: AppText.caption),
+            const SizedBox(height: Space.sm),
+            Wrap(spacing: Space.xs, children: [
+              const Pill('Parada de ônibus', icon: Icons.directions_bus_outlined),
+              if (stop.hasShelter == true) const Pill('Coberta', icon: Icons.roofing, color: AppColors.textMuted),
+              if (stop.isLit == true) const Pill('Iluminada', icon: Icons.light_mode_outlined, color: AppColors.warning),
+            ]),
+            const SizedBox(height: Space.lg),
             BoraButton(
-              label: 'Buscar carona saindo daqui',
+              label: 'Sair daqui',
+              icon: Icons.arrow_upward,
               onPressed: () {
                 Navigator.of(sheet).pop();
-                context.push('/search?pickup=${stop.id}');
+                _origin = Place(label: stop.name, point: stop.point);
+                _chooseDestination();
               },
             ),
           ],
@@ -75,124 +401,513 @@ class _MapTabState extends ConsumerState<MapTab> {
       ),
     );
   }
+}
+
+// ======================================================================
+// Peças do sheet
+// ======================================================================
+class _SheetFrame extends StatelessWidget {
+  const _SheetFrame({required this.child, this.maxHeightFactor = .62});
+  final Widget child;
+  final double maxHeightFactor;
 
   @override
   Widget build(BuildContext context) {
-    final store = ref.watch(storeProvider);
-    final me = store.me;
-    final graph = store.graph;
-    if (me == null || graph.boardable.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.green));
-    }
-    final nearest = graph.nearestBoardable(store.position);
-    final walk = graph.metersBetween(store.position, nearest.point);
-    final hasVehicle = store.myVehicles.isNotEmpty;
-
-    return Stack(
-      children: [
-        BoraMap(
-          controller: _map,
-          center: store.position,
-          zoom: 12.5,
-          polylines: [
-            for (final (a, b) in graph.links) boraRouteLine(graph.pointsOf([a, b]), faint: true),
-          ],
-          markers: [
-            for (final s in graph.boardable)
-              stopMarker(s.point, onTap: () => _showStop(s), highlight: s.id == nearest.id, label: s.name),
-            youAreHereMarker(store.position),
+    return Container(
+      width: double.infinity,
+      constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * maxHeightFactor),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.sheet)),
+        boxShadow: Shadows.floating,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: Space.xs, bottom: Space.xs),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(2)),
+            ),
+            Flexible(child: child),
           ],
         ),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xE60F172A),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.line),
+      ),
+    );
+  }
+}
+
+class _IdleSheet extends StatelessWidget {
+  const _IdleSheet({
+    super.key,
+    required this.onWhereTo,
+    required this.onPickOnMap,
+    required this.onOffer,
+    this.upcoming,
+    this.stopName,
+    this.onTrack,
+    this.activeRide,
+  });
+  final VoidCallback onWhereTo;
+  final VoidCallback onPickOnMap;
+  final VoidCallback onOffer;
+  final Booking? upcoming;
+  final String? stopName;
+  final VoidCallback? onTrack;
+  final Ride? activeRide;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(Space.page, Space.xs, Space.page, Space.md),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (upcoming != null) ...[
+              BoraCard(
+                onTap: onTrack,
+                highlight: true,
+                child: Row(
+                  children: [
+                    const IconTile(Icons.directions_car_filled, color: AppColors.night, background: AppColors.green),
+                    const SizedBox(width: Space.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Sua carona · ${formatWhen(upcoming!.ride!.departureAt)}', style: AppText.bodyStrong),
+                          Text('Embarque em ${stopName ?? 'parada'}', style: AppText.caption, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
                     ),
-                    child: Text('Oi, ${me.firstName}',
-                        style: const TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.w800)),
+                    const Text('Acompanhar', style: TextStyle(color: AppColors.green, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: Space.sm),
+            ],
+            // "Para onde vamos?"
+            Material(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(Radii.md),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(Radii.md),
+                onTap: onWhereTo,
+                child: Container(
+                  height: 56,
+                  padding: const EdgeInsets.symmetric(horizontal: Space.md),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.search, color: AppColors.text),
+                      SizedBox(width: Space.sm),
+                      Expanded(child: Text('Para onde vamos?', style: AppText.title)),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                IconButton.filled(
-                  style: IconButton.styleFrom(backgroundColor: const Color(0xE60F172A)),
-                  tooltip: 'Centralizar em mim',
-                  icon: const Icon(Icons.my_location, color: AppColors.mint),
-                  onPressed: _centerOnMe,
+              ),
+            ),
+            const SizedBox(height: Space.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickAction(icon: Icons.push_pin_outlined, label: 'Escolher no mapa', onTap: onPickOnMap),
                 ),
+                const SizedBox(width: Space.sm),
+                Expanded(
+                  child: _QuickAction(
+                    icon: activeRide != null ? Icons.navigation_outlined : Icons.add_road,
+                    label: activeRide != null ? 'Minha viagem' : 'Oferecer carona',
+                    onTap: activeRide != null ? () => context.push('/my-ride/${activeRide!.id}') : onOffer,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({required this.icon, required this.label, required this.onTap});
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(Radii.md),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: Space.sm),
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: AppColors.text),
+                const SizedBox(width: Space.xs),
+                Flexible(child: Text(label, style: AppText.label.copyWith(color: AppColors.text), overflow: TextOverflow.ellipsis)),
               ],
             ),
           ),
         ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: const Color(0xF20F172A),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: AppColors.line),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+      );
+}
+
+class _ResultsSheet extends StatelessWidget {
+  const _ResultsSheet({
+    super.key,
+    required this.origin,
+    required this.destination,
+    required this.offers,
+    required this.loading,
+    required this.onChangeOrigin,
+    required this.onChangeDestination,
+    required this.onSelect,
+  });
+  final Place? origin;
+  final Place? destination;
+  final List<RideOffer> offers;
+  final bool loading;
+  final VoidCallback onChangeOrigin;
+  final VoidCallback onChangeDestination;
+  final ValueChanged<RideOffer> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.md),
+        children: [
+          BoraCard(
+            padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.sm),
+            child: Row(
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<_Mode>(
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(value: _Mode.passenger, label: Text('Preciso de carona')),
-                      ButtonSegment(value: _Mode.driver, label: Text('Vou dirigir')),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _Editable(text: origin?.label ?? 'Minha localização', onTap: onChangeOrigin),
+                      const Divider(height: Space.md),
+                      _Editable(text: destination?.label ?? '', onTap: onChangeDestination, strong: true),
                     ],
-                    selected: {_mode},
-                    onSelectionChanged: (s) => setState(() => _mode = s.first),
                   ),
                 ),
-                const SizedBox(height: 14),
-                if (_mode == _Mode.passenger) ...[
-                  Text('Parada mais perto de você: ${nearest.name}',
-                      style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600)),
-                  Text(store.positionIsReal
-                      ? 'A $walk m de você'
-                      : 'Localização aproximada. Toque na mira para usar o GPS.'),
-                  const SizedBox(height: 14),
-                  BoraButton(
-                    label: 'Buscar carona',
-                    onPressed: () => context.push('/search?pickup=${nearest.id}'),
-                  ),
-                ] else ...[
-                  Text(
-                    hasVehicle
-                        ? 'Informe o destino e as vagas. O Bora calcula a rota e preenche os lugares.'
-                        : 'Para oferecer carona, cadastre primeiro o seu carro.',
-                    style: const TextStyle(color: AppColors.text),
-                  ),
-                  const SizedBox(height: 14),
-                  BoraButton(
-                    label: hasVehicle ? 'Publicar viagem' : 'Cadastrar meu carro',
-                    onPressed: () {
-                      if (me.identityStatus != VerificationStatus.approved) {
-                        showBoraError(context, 'Sua identidade ainda está em verificação.');
-                        return;
-                      }
-                      context.push(hasVehicle ? '/publish' : '/vehicle');
-                    },
-                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: Space.md),
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: Space.xl),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (offers.isEmpty)
+            const EmptyState(
+              icon: Icons.route_outlined,
+              title: 'Nenhuma carona nesse caminho agora',
+              text: 'Guardamos sua busca: motoristas que fazem esse trajeto vão ver que tem gente precisando.',
+            )
+          else ...[
+            Text('${offers.length} ${offers.length == 1 ? 'carona encontrada' : 'caronas encontradas'}', style: AppText.label),
+            const SizedBox(height: Space.xs),
+            for (final (i, o) in offers.indexed) ...[
+              _OfferTile(offer: o, best: i == 0, onTap: () => onSelect(o)),
+              const SizedBox(height: Space.xs),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Editable extends StatelessWidget {
+  const _Editable({required this.text, required this.onTap, this.strong = false});
+  final String text;
+  final VoidCallback onTap;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: strong ? AppColors.green : AppColors.text,
+                  shape: strong ? BoxShape.rectangle : BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: Space.sm),
+              Expanded(
+                child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: strong ? AppText.bodyStrong : AppText.body),
+              ),
+              const Icon(Icons.edit_outlined, size: 16, color: AppColors.textFaint),
+            ],
+          ),
+        ),
+      );
+}
+
+String _minutesUntil(DateTime t) {
+  final m = t.difference(DateTime.now()).inMinutes;
+  if (m <= 1) return 'agora';
+  if (m < 60) return '$m min';
+  return formatTime(t);
+}
+
+class _OfferTile extends StatelessWidget {
+  const _OfferTile({required this.offer, required this.onTap, this.best = false});
+  final RideOffer offer;
+  final VoidCallback onTap;
+  final bool best;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = offer.ride;
+    return BoraCard(
+      onTap: onTap,
+      highlight: best,
+      child: Row(
+        children: [
+          Avatar(r.driver.initial),
+          const SizedBox(width: Space.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Flexible(child: Text('${r.driver.firstName} · ${r.vehicle.model}', style: AppText.bodyStrong, overflow: TextOverflow.ellipsis)),
+                  if (best) ...[const SizedBox(width: Space.xs), const Pill('Melhor opção')],
+                ]),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    if (offer.pickupEta != null) 'Passa às ${formatTime(offer.pickupEta!)}',
+                    if (offer.pickupWalkM != null) '${offer.pickupWalkM} m a pé',
+                    '${r.seatsAvailable} ${r.seatsAvailable == 1 ? 'vaga' : 'vagas'}',
+                  ].join(' · '),
+                  style: AppText.caption,
+                ),
+                if (offer.sharedCommunities.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Pill(offer.sharedCommunities.first, icon: Icons.groups_outlined, color: AppColors.mint),
                 ],
               ],
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: Space.sm),
+          Metric(
+            value: formatCents(offer.priceCents),
+            label: offer.pickupEta == null ? '' : _minutesUntil(offer.pickupEta!),
+            alignEnd: true,
+          ),
+        ],
+      ),
     );
   }
+}
+
+class _OfferSheet extends StatelessWidget {
+  const _OfferSheet({super.key, required this.offer, required this.loading, required this.onBook});
+  final RideOffer offer;
+  final bool loading;
+  final VoidCallback onBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = offer.ride;
+    return _SheetFrame(
+      maxHeightFactor: .7,
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.md),
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text('Confirmar carona', style: AppText.headline.copyWith(fontSize: 22))),
+              Metric(value: formatCents(offer.priceCents), label: 'rateio sugerido', alignEnd: true),
+            ],
+          ),
+          const SizedBox(height: Space.md),
+          RouteSummary(
+            from: offer.pickup?.name ?? 'Embarque',
+            fromDetail: [
+              if (offer.pickupEta != null) 'Carro passa às ${formatTime(offer.pickupEta!)}',
+              if (offer.pickupWalkM != null) '${offer.pickupWalkM} m a pé de você',
+            ].join(' · '),
+            to: offer.dropoff?.name ?? 'Desembarque',
+            toDetail: [
+              if (offer.dropoffEta != null) 'Chegada por volta das ${formatTime(offer.dropoffEta!)}',
+              if (offer.dropoffWalkM != null) '${offer.dropoffWalkM} m até o destino',
+            ].join(' · '),
+          ),
+          const SizedBox(height: Space.md),
+          const Divider(),
+          const SizedBox(height: Space.sm),
+          Row(
+            children: [
+              Avatar(r.driver.initial),
+              const SizedBox(width: Space.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(r.driver.firstName, style: AppText.bodyStrong),
+                    Text('${r.vehicle.brand} ${r.vehicle.model} · ${r.vehicle.color}', style: AppText.caption),
+                  ],
+                ),
+              ),
+              Row(children: [
+                const Icon(Icons.star_rounded, size: 18, color: AppColors.warning),
+                const SizedBox(width: 2),
+                Text(r.driver.ratingLabel, style: AppText.label.copyWith(color: AppColors.text)),
+              ]),
+            ],
+          ),
+          const SizedBox(height: Space.sm),
+          Wrap(spacing: Space.xs, runSpacing: Space.xs, children: [
+            const Pill('Identidade verificada', icon: Icons.verified_user_outlined),
+            if (r.womenOnly) const Pill('Só mulheres', icon: Icons.female, color: AppColors.mint),
+            for (final c in offer.sharedCommunities) Pill(c, icon: Icons.groups_outlined, color: AppColors.mint),
+          ]),
+          const SizedBox(height: Space.md),
+          const Text(
+            'A placa e o nome completo aparecem depois da reserva. O valor é um rateio de custo, pago direto ao motorista.',
+            style: AppText.caption,
+          ),
+          const SizedBox(height: Space.md),
+          BoraButton(label: 'Reservar vaga', loading: loading, onPressed: onBook),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrackingSheet extends StatelessWidget {
+  const _TrackingSheet({super.key, required this.booking, required this.tracking, required this.pickupName, required this.onClose, required this.onDetails});
+  final Booking booking;
+  final RideTracking? tracking;
+  final String pickupName;
+  final VoidCallback onClose;
+  final VoidCallback onDetails;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = booking.ride;
+    final t = tracking;
+    final eta = t?.pickupEta;
+    final headline = eta == null
+        ? 'Carona reservada'
+        : (t!.live ? 'Motorista chega em ${_minutesUntil(eta)}' : 'Saída às ${formatTime(r?.departureAt ?? eta)}');
+
+    return _SheetFrame(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.md),
+        children: [
+          Text(headline, style: AppText.headline.copyWith(fontSize: 22)),
+          const SizedBox(height: 2),
+          Text(
+            t?.live == true
+                ? 'Posição atualizada em tempo real · embarque em $pickupName'
+                : 'O carro aparece no mapa quando o motorista sair. Embarque em $pickupName.',
+            style: AppText.body,
+          ),
+          const SizedBox(height: Space.md),
+          if (booking.boardingCode != null)
+            BoraCard(
+              child: Row(
+                children: [
+                  const Expanded(child: Text('Código de embarque\nMostre ao motorista', style: AppText.label)),
+                  Text(booking.boardingCode!, style: AppText.display.copyWith(letterSpacing: 6)),
+                ],
+              ),
+            ),
+          if (r != null) ...[
+            const SizedBox(height: Space.sm),
+            Row(
+              children: [
+                Avatar(r.driver.initial),
+                const SizedBox(width: Space.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(r.driver.fullName, style: AppText.bodyStrong),
+                      Text('${r.vehicle.model} ${r.vehicle.color}', style: AppText.caption),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(color: AppColors.text, borderRadius: BorderRadius.circular(6)),
+                  child: Text(r.vehicle.plate,
+                      style: const TextStyle(color: AppColors.night, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: Space.md),
+          Row(
+            children: [
+              Expanded(child: BoraButton(label: 'Detalhes', kind: BoraButtonKind.secondary, onPressed: onDetails)),
+              const SizedBox(width: Space.sm),
+              Expanded(child: BoraButton(label: 'Fechar', kind: BoraButtonKind.ghost, onPressed: onClose)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TopChip extends StatelessWidget {
+  const _TopChip({required this.text, this.sub});
+  final String text;
+  final String? sub;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: 10),
+        decoration: BoxDecoration(color: AppColors.surfaceRaised, borderRadius: BorderRadius.circular(999), boxShadow: Shadows.soft),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(text, style: AppText.bodyStrong),
+            if (sub != null)
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                Container(width: 6, height: 6, decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
+                const SizedBox(width: 4),
+                Text(sub!, style: AppText.caption.copyWith(color: AppColors.green)),
+              ]),
+          ],
+        ),
+      );
+}
+
+class _Hint extends StatelessWidget {
+  const _Hint(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 6),
+        decoration: BoxDecoration(color: AppColors.scrim, borderRadius: BorderRadius.circular(999)),
+        child: Text(text, style: AppText.caption.copyWith(color: AppColors.text)),
+      );
 }

@@ -47,14 +47,14 @@ class _DevLoginScreenState extends ConsumerState<DevLoginScreen> {
   Widget build(BuildContext context) {
     return StepScaffold(
       title: 'Entrar com e-mail',
-      subtitle: 'Modo de desenvolvimento. Crie quantas contas quiser para testar motorista e passageiro.',
+      subtitle: 'Entre na sua conta ou crie uma nova com e-mail e senha.',
       action: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           BoraButton(label: 'Entrar', loading: _loading, onPressed: () => _go(create: false)),
           const SizedBox(height: 12),
           BoraButton(
-              label: 'Criar conta de teste', secondary: true, onPressed: _loading ? null : () => _go(create: true)),
+              label: 'Criar conta', kind: BoraButtonKind.ghost, onPressed: _loading ? null : () => _go(create: true)),
         ],
       ),
       child: Column(

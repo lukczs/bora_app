@@ -4,14 +4,19 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/bora_map.dart';
+import '../../core/widgets/cards.dart';
 import '../../core/widgets/step_scaffold.dart';
 import '../../data/errors.dart';
+import '../../data/routing_service.dart';
 import '../../domain/models.dart';
+import '../places/place_picker.dart';
 
-/// Publicar viagem. Com [editRideId], vira edição (horário, vagas e recorrência).
+/// Oferecer carona: origem e destino livres, rota real, paradas descobertas pelo servidor.
+/// Com [editRideId], edita só horário, vagas e recorrência (a rota fica como está).
 class PublishRideScreen extends ConsumerStatefulWidget {
   const PublishRideScreen({super.key, this.editRideId});
   final String? editRideId;
@@ -20,8 +25,12 @@ class PublishRideScreen extends ConsumerStatefulWidget {
 }
 
 class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
-  String? _origin;
-  String? _destination;
+  Place? _origin;
+  Place? _destination;
+  RoutePlan? _plan;
+  int? _demand;
+  bool _routing = false;
+
   String? _vehicleId;
   int _seats = 1;
   late DateTime _departure;
@@ -36,12 +45,8 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
   void initState() {
     super.initState();
     final store = ref.read(storeProvider);
-    final myVehicles = store.myVehicles;
     final ride = _editing ? store.myRide(widget.editRideId!) : null;
-
     if (ride != null) {
-      _origin = ride.originStopId;
-      _destination = ride.destinationStopId;
       _vehicleId = ride.vehicle.id;
       _seats = ride.seatsTotal;
       _departure = ride.departureAt;
@@ -49,11 +54,49 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
       _communityIds.addAll(ride.communityIds);
       _womenOnly = ride.womenOnly;
     } else {
-      _origin = store.graph.nearestBoardable(store.position).id;
-      _vehicleId = myVehicles.isEmpty ? null : myVehicles.first.id;
-      _seats = myVehicles.isEmpty ? 1 : myVehicles.first.seats;
+      _origin = Place(label: 'Minha localização', point: store.position);
+      _vehicleId = store.myVehicles.firstOrNull?.id;
+      _seats = store.myVehicles.firstOrNull?.seats ?? 1;
       final soon = DateTime.now().add(const Duration(minutes: 30));
       _departure = DateTime(soon.year, soon.month, soon.day, soon.hour, (soon.minute ~/ 5) * 5);
+    }
+  }
+
+  Future<void> _pick({required bool origin}) async {
+    final p = await PlaceSearchScreen.open(
+      context,
+      title: origin ? 'De onde você sai?' : 'Para onde você vai?',
+      hint: origin ? 'Ponto de partida' : 'Destino',
+      allowMyLocation: origin,
+    );
+    if (p == null || !mounted) return;
+    setState(() {
+      if (origin) {
+        _origin = p;
+      } else {
+        _destination = p;
+      }
+      _plan = null;
+      _demand = null;
+    });
+    await _route();
+  }
+
+  Future<void> _route() async {
+    final o = _origin, d = _destination;
+    if (o == null || d == null) return;
+    setState(() => _routing = true);
+    try {
+      final store = ref.read(storeProvider);
+      final plan = await ref.read(routingProvider).route(o.point, d.point);
+      if (!mounted) return;
+      setState(() => _plan = plan);
+      final demand = await store.demandNearRoute(plan.geoJson);
+      if (mounted) setState(() => _demand = demand);
+    } catch (e) {
+      if (mounted) showBoraError(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _routing = false);
     }
   }
 
@@ -71,35 +114,33 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
     setState(() => _departure = DateTime(date.year, date.month, date.day, time.hour, time.minute));
   }
 
-  Future<void> _save() async {
-    if (_origin == null || _destination == null || _vehicleId == null) {
-      showBoraError(context, 'Escolha de onde sai, para onde vai e qual carro.');
-      return;
-    }
+  Future<void> _submit() async {
     final store = ref.read(storeProvider);
-    final path = store.graph.shortestPath(_origin!, _destination!);
-    if (path == null) {
-      showBoraError(context, 'Ainda não conhecemos um trajeto entre essas duas paradas.');
-      return;
-    }
     setState(() => _loading = true);
     try {
       if (_editing) {
-        await store.updateRide(widget.editRideId!,
-            departureAt: _departure, seats: _seats, recurringDays: _weekdays.toList());
+        await store.updateRide(widget.editRideId!, departureAt: _departure, seats: _seats, recurringDays: _weekdays.toList());
         if (mounted) context.pop();
-      } else {
-        final rideId = await store.publishRide(
-          vehicleId: _vehicleId!,
-          path: path,
-          departureAt: _departure,
-          seats: _seats,
-          recurringDays: _weekdays.toList(),
-          womenOnly: _womenOnly,
-          communityIds: _communityIds.toList(),
-        );
-        if (mounted) context.pushReplacement('/my-ride/$rideId');
+        return;
       }
+      if (_plan == null || _vehicleId == null) {
+        showBoraError(context, _vehicleId == null ? 'Cadastre um carro antes.' : 'Defina origem e destino.');
+        return;
+      }
+      final r = await store.publishRideRoute(
+        vehicleId: _vehicleId!,
+        routeGeoJson: _plan!.geoJson,
+        originLabel: _origin!.label,
+        destLabel: _destination!.label,
+        departureAt: _departure,
+        seats: _seats,
+        recurringDays: _weekdays.toList(),
+        womenOnly: _womenOnly,
+        communityIds: _communityIds.toList(),
+      );
+      if (!mounted) return;
+      showBoraError(context, 'Viagem publicada com ${r.stops} pontos de embarque no caminho.');
+      context.pushReplacement('/my-ride/${r.rideId}');
     } catch (e) {
       if (mounted) showBoraError(context, friendlyError(e));
     } finally {
@@ -111,172 +152,198 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
   Widget build(BuildContext context) {
     final store = ref.watch(storeProvider);
     final me = store.me!;
-    final graph = store.graph;
-    final myVehicles = store.myVehicles;
-    final myCommunities = store.myCommunities.where((c) => c.myStatus == MemberStatus.active).toList();
-    final stopItems = [
-      for (final s in graph.boardable)
-        DropdownMenuItem(value: s.id, child: Text(s.name, overflow: TextOverflow.ellipsis)),
-    ];
-
-    final path = (_origin != null && _destination != null)
-        ? graph.shortestPath(_origin!, _destination!)
-        : null;
-    final boardableOnPath = path?.where((id) => store.stop(id).boardable).toList() ?? const <String>[];
-    final maxSeats = myVehicles.where((v) => v.id == _vehicleId).firstOrNull?.seats ?? 6;
+    final vehicles = store.myVehicles;
+    final communities = store.myCommunities.where((c) => c.myStatus == MemberStatus.active).toList();
+    final maxSeats = vehicles.where((v) => v.id == _vehicleId).firstOrNull?.seats ?? 6;
     if (_seats > maxSeats) _seats = maxSeats;
 
-    const label = TextStyle(color: AppColors.text, fontWeight: FontWeight.w600);
-
-    return Scaffold(
-      appBar: AppBar(title: Text(_editing ? 'Editar viagem' : 'Publicar viagem')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+    return StepScaffold(
+      title: _editing ? 'Editar viagem' : 'Oferecer carona',
+      subtitle: _editing
+          ? 'O trajeto continua o mesmo. Ajuste horário, vagas e repetição.'
+          : 'Diga por onde você já vai passar. O Bora encontra as paradas no caminho e quem precisa de carona nelas.',
+      action: BoraButton(
+        label: _editing ? 'Salvar' : 'Publicar viagem',
+        loading: _loading,
+        onPressed: _editing || (_plan != null && !_routing) ? _submit : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          DropdownButtonFormField<String>(
-            value: _origin,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'De onde você sai'),
-            items: stopItems,
-            onChanged: _editing ? null : (v) => setState(() => _origin = v),
-          ),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            value: _destination,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Para onde você vai'),
-            items: stopItems,
-            onChanged: _editing ? null : (v) => setState(() => _destination = v),
-          ),
-          const SizedBox(height: 16),
-          if (path != null) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: SizedBox(
-                height: 200,
-                child: BoraMap(
-                  key: ValueKey('$_origin>$_destination'),
-                  interactive: false,
-                  fitPoints: graph.pointsOf(path),
-                  polylines: [boraRouteLine(graph.pointsOf(path))],
-                  markers: [for (final id in boardableOnPath) stopMarker(store.stop(id).point)],
+          if (!_editing) ...[
+            BoraCard(
+              padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.xs),
+              child: Column(
+                children: [
+                  _PlaceRow(label: 'Saída', value: _origin?.label, dot: true, onTap: () => _pick(origin: true)),
+                  const Divider(height: 1),
+                  _PlaceRow(label: 'Destino', value: _destination?.label, onTap: () => _pick(origin: false)),
+                ],
+              ),
+            ),
+            const SizedBox(height: Space.md),
+            if (_routing)
+              const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()))
+            else if (_plan != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(Radii.lg - 4),
+                child: SizedBox(
+                  height: 190,
+                  child: BoraMap(
+                    interactive: false,
+                    fitPoints: _plan!.points,
+                    fitPadding: const EdgeInsets.all(28),
+                    polylines: boraRoute(_plan!.points),
+                    markers: [destinationMarker(_plan!.points.last)],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-                'Rota de ${formatKm(graph.distanceAlong(path, 0, path.length - 1))} passando por ${boardableOnPath.length} paradas. '
-                'Quem embarcar em qualquer uma delas pode pegar carona com você.'),
-          ] else if (_origin != null && _destination != null)
-            const Text('Ainda não conhecemos um trajeto entre essas duas paradas.',
-                style: TextStyle(color: AppColors.warning)),
-          const SizedBox(height: 22),
-          if (!_editing) ...[
+              const SizedBox(height: Space.sm),
+              Row(
+                children: [
+                  Expanded(child: Metric(value: formatKm(_plan!.distanceM), label: 'distância')),
+                  Expanded(child: Metric(value: '${_plan!.duration.inMinutes} min', label: 'sem trânsito')),
+                  Expanded(
+                    child: Metric(value: '${_demand ?? '–'}', label: 'buscas no caminho', alignEnd: true),
+                  ),
+                ],
+              ),
+              if ((_demand ?? 0) > 0) ...[
+                const SizedBox(height: Space.sm),
+                Pill('$_demand ${_demand == 1 ? 'pessoa procurou' : 'pessoas procuraram'} carona nesse trajeto', icon: Icons.trending_up),
+              ],
+            ],
+            const SectionHeader('Detalhes', padding: EdgeInsets.only(top: Space.lg, bottom: Space.xs)),
+          ],
+          if (vehicles.isEmpty)
+            BoraCard(
+              onTap: () => context.push('/vehicle'),
+              child: const Row(children: [
+                IconTile(Icons.directions_car_outlined),
+                SizedBox(width: Space.sm),
+                Expanded(child: Text('Cadastrar um carro', style: AppText.bodyStrong)),
+                Icon(Icons.chevron_right, color: AppColors.textFaint),
+              ]),
+            )
+          else
             DropdownButtonFormField<String>(
               value: _vehicleId,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Carro'),
-              items: [
-                for (final v in myVehicles)
-                  DropdownMenuItem(value: v.id, child: Text('${v.label} (${v.plate})')),
-              ],
-              onChanged: (v) => setState(() {
-                _vehicleId = v;
-                _seats = myVehicles.firstWhere((x) => x.id == v).seats;
-              }),
+              decoration: const InputDecoration(labelText: 'Carro', prefixIcon: Icon(Icons.directions_car_outlined)),
+              dropdownColor: AppColors.surfaceRaised,
+              items: [for (final v in vehicles) DropdownMenuItem(value: v.id, child: Text('${v.label} · ${v.plate}'))],
+              onChanged: _editing
+                  ? null
+                  : (v) => setState(() {
+                        _vehicleId = v;
+                        _seats = vehicles.firstWhere((x) => x.id == v).seats;
+                      }),
             ),
-            const SizedBox(height: 18),
-          ],
-          Row(
-            children: [
-              const Expanded(child: Text('Vagas oferecidas', style: label)),
-              IconButton(
-                onPressed: _seats > 1 ? () => setState(() => _seats--) : null,
-                icon: const Icon(Icons.remove_circle_outline),
-              ),
-              Text('$_seats',
-                  style: const TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w800)),
-              IconButton(
-                onPressed: _seats < maxSeats ? () => setState(() => _seats++) : null,
-                icon: const Icon(Icons.add_circle_outline),
-              ),
-            ],
-          ),
-          const Divider(color: AppColors.line, height: 28),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Saída', style: label),
-            subtitle: Text(formatWhen(_departure)),
-            trailing: const Icon(Icons.edit_calendar, color: AppColors.green),
+          const SizedBox(height: Space.sm),
+          BoraCard(
             onTap: _pickDeparture,
+            child: Row(children: [
+              const IconTile(Icons.schedule),
+              const SizedBox(width: Space.sm),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Saída', style: AppText.caption),
+                  Text(formatWhen(_departure), style: AppText.bodyStrong),
+                ]),
+              ),
+              const Icon(Icons.edit_outlined, size: 18, color: AppColors.textFaint),
+            ]),
           ),
-          const SizedBox(height: 6),
-          const Text('Repetir toda semana', style: label),
-          const SizedBox(height: 8),
+          const SizedBox(height: Space.sm),
+          BoraCard(
+            child: Row(children: [
+              const IconTile(Icons.event_seat_outlined),
+              const SizedBox(width: Space.sm),
+              const Expanded(child: Text('Vagas', style: AppText.bodyStrong)),
+              IconButton(onPressed: _seats > 1 ? () => setState(() => _seats--) : null, icon: const Icon(Icons.remove_circle_outline)),
+              Text('$_seats', style: AppText.number),
+              IconButton(onPressed: _seats < maxSeats ? () => setState(() => _seats++) : null, icon: const Icon(Icons.add_circle_outline)),
+            ]),
+          ),
+          const SectionHeader('Repetir', padding: EdgeInsets.only(top: Space.lg, bottom: Space.xs)),
           Wrap(
-            spacing: 6,
+            spacing: Space.xs,
             children: [
               for (var d = 1; d <= 7; d++)
                 FilterChip(
                   label: Text(weekdayShort(d)),
                   selected: _weekdays.contains(d),
-                  showCheckmark: false,
-                  selectedColor: const Color(0x3322C55E),
-                  backgroundColor: AppColors.surface,
-                  side: BorderSide(color: _weekdays.contains(d) ? AppColors.green : AppColors.line),
                   onSelected: (on) => setState(() => on ? _weekdays.add(d) : _weekdays.remove(d)),
                 ),
             ],
           ),
           if (!_editing) ...[
-            const Divider(color: AppColors.line, height: 36),
-            const Text('Quem pode ver esta viagem', style: label),
-            const SizedBox(height: 4),
-            Text(_communityIds.isEmpty
-                ? 'Todas as pessoas verificadas do Bora.'
-                : 'Só membros das comunidades marcadas.'),
-            const SizedBox(height: 8),
-            if (myCommunities.isEmpty)
-              const Text('Você ainda não participa de nenhuma comunidade.')
-            else
+            if (communities.isNotEmpty) ...[
+              const SectionHeader('Quem pode ver', padding: EdgeInsets.only(top: Space.lg, bottom: Space.xs)),
+              Text(_communityIds.isEmpty ? 'Todos os usuários verificados' : 'Só as comunidades marcadas', style: AppText.caption),
+              const SizedBox(height: Space.xs),
               Wrap(
-                spacing: 8,
-                runSpacing: 4,
+                spacing: Space.xs,
+                runSpacing: Space.xs,
                 children: [
-                  for (final c in myCommunities)
+                  for (final c in communities)
                     FilterChip(
                       label: Text(c.name),
-                      avatar: const Icon(Icons.groups, size: 16),
                       selected: _communityIds.contains(c.id),
-                      showCheckmark: false,
-                      selectedColor: const Color(0x3322C55E),
-                      backgroundColor: AppColors.surface,
-                      side: BorderSide(
-                          color: _communityIds.contains(c.id) ? AppColors.green : AppColors.line),
-                      onSelected: (on) =>
-                          setState(() => on ? _communityIds.add(c.id) : _communityIds.remove(c.id)),
+                      onSelected: (on) => setState(() => on ? _communityIds.add(c.id) : _communityIds.remove(c.id)),
                     ),
                 ],
               ),
+            ],
             if (me.gender == Gender.female) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: Space.md),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 value: _womenOnly,
                 onChanged: (v) => setState(() => _womenOnly = v),
-                title: const Text('Apenas mulheres', style: label),
-                subtitle: const Text('Só passageiras mulheres poderão ver e reservar esta viagem.'),
+                title: const Text('Só mulheres', style: AppText.bodyStrong),
+                subtitle: const Text('Apenas passageiras poderão reservar.', style: AppText.caption),
               ),
             ],
           ],
-          const SizedBox(height: 24),
-          BoraButton(
-            label: _editing ? 'Salvar alterações' : 'Publicar viagem',
-            loading: _loading,
-            onPressed: _save,
-          ),
         ],
       ),
     );
   }
+}
+
+class _PlaceRow extends StatelessWidget {
+  const _PlaceRow({required this.label, required this.value, required this.onTap, this.dot = false});
+  final String label;
+  final String? value;
+  final VoidCallback onTap;
+  final bool dot;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Space.sm),
+          child: Row(
+            children: [
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                    color: dot ? AppColors.text : AppColors.green, shape: dot ? BoxShape.circle : BoxShape.rectangle),
+              ),
+              const SizedBox(width: Space.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: AppText.caption),
+                    Text(value ?? 'Escolher', style: value == null ? AppText.body : AppText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.textFaint),
+            ],
+          ),
+        ),
+      );
 }

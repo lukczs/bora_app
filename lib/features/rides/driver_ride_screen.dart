@@ -7,6 +7,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/bora_map.dart';
+import 'ride_route_map.dart';
 import '../../core/widgets/cards.dart';
 import '../../core/widgets/step_scaffold.dart';
 import '../../data/bora_store.dart';
@@ -84,9 +85,9 @@ class _DriverRideScreenState extends ConsumerState<DriverRideScreen> {
               borderRadius: BorderRadius.circular(20),
               child: SizedBox(
                 height: 210,
-                child: BoraMap(
-                  fitPoints: points,
-                  polylines: [boraRouteLine(points)],
+                child: RideRouteMap(
+                  rideId: ride.id,
+                  fallback: points,
                   markers: [
                     for (final id in ride.path.where((id) => store.stop(id).boardable))
                       stopMarker(store.stop(id).point),

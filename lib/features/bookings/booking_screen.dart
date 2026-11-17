@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/bora_map.dart';
+import '../rides/ride_route_map.dart';
 import '../../core/widgets/cards.dart';
 import '../../core/widgets/step_scaffold.dart';
 import '../../data/errors.dart';
@@ -99,10 +100,10 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
               borderRadius: BorderRadius.circular(20),
               child: SizedBox(
                 height: 190,
-                child: BoraMap(
+                child: RideRouteMap(
+                  rideId: ride.id,
                   interactive: false,
-                  fitPoints: stretch,
-                  polylines: [boraRouteLine(stretch)],
+                  fallback: stretch,
                   markers: [
                     stopMarker(pickup.point, highlight: true, label: 'Embarque'),
                     stopMarker(dropoff.point, highlight: true, label: 'Destino'),

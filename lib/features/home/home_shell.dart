@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../communities/communities_tab.dart';
 import '../profile/profile_tab.dart';
 import '../trips/trips_tab.dart';
@@ -22,9 +21,9 @@ class _HomeShellState extends State<HomeShell> {
         index: _index,
         children: const [MapTab(), TripsTab(), CommunitiesTab(), ProfileTab()],
       ),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: AppColors.surface,
-        indicatorColor: const Color(0x3322C55E),
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFF2C3A5C)))),
+        child: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
@@ -36,6 +35,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(
               icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Perfil'),
         ],
+        ),
       ),
     );
   }

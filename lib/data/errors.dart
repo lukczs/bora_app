@@ -2,6 +2,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models.dart';
 
 const _messages = <String, String>{
+  'invalid_route_length': 'A rota precisa ter entre 500 m e 120 km.',
+  'route_outside_area': 'Por enquanto o Bora funciona só no DF e Entorno.',
+  'route_without_stops': 'Essa rota não passa perto de nenhuma parada de ônibus. Tente outro caminho.',
+  'invalid_route': 'Não foi possível ler a rota. Calcule de novo.',
+  'removed_by_driver': 'O motorista removeu você desta viagem.',
+
   'cpf_already_registered': 'Este CPF já está cadastrado em outra conta.',
   'invalid_cpf': 'CPF inválido.',
   'must_be_adult': 'É preciso ter 18 anos ou mais para usar o Bora.',

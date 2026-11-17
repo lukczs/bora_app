@@ -153,12 +153,16 @@ class Stop {
     required this.region,
     required this.point,
     this.boardable = true,
+    this.hasShelter,
+    this.isLit,
   });
   final String id;
   final String name;
   final String region;
   final LatLng point;
   final bool boardable;
+  final bool? hasShelter;
+  final bool? isLit;
 
   factory Stop.fromMap(Map<String, dynamic> m) => Stop(
         id: m['id'] as String,
@@ -166,6 +170,8 @@ class Stop {
         region: m['region'] as String,
         point: LatLng((m['lat'] as num).toDouble(), (m['lng'] as num).toDouble()),
         boardable: m['boardable'] as bool? ?? true,
+        hasShelter: m['has_shelter'] as bool?,
+        isLit: m['is_lit'] as bool?,
       );
 }
 
@@ -239,6 +245,8 @@ class Ride {
     required this.communityNames,
     required this.communityIds,
     this.bookings = const [],
+    this.originLabel,
+    this.destLabel,
   });
   final String id;
   final Person driver;
@@ -257,6 +265,12 @@ class Ride {
 
   /// Só vem preenchido nas viagens em que eu sou o motorista.
   final List<Booking> bookings;
+
+  /// Rótulos da rota real (viagens publicadas com origem/destino livres).
+  final String? originLabel;
+  final String? destLabel;
+
+  bool get hasRealRoute => originLabel != null || destLabel != null;
 
   String get originStopId => path.first;
   String get destinationStopId => path.last;
@@ -282,6 +296,8 @@ class Ride {
         for (final b in (m['bookings'] as List? ?? const []))
           Booking.fromMap(Map<String, dynamic>.from(b as Map)),
       ],
+      originLabel: m['origin_label'] as String?,
+      destLabel: m['dest_label'] as String?,
     );
   }
 }
@@ -344,6 +360,12 @@ class RideOffer {
     required this.distanceM,
     required this.priceCents,
     required this.sharedCommunities,
+    this.pickup,
+    this.dropoff,
+    this.pickupWalkM,
+    this.dropoffWalkM,
+    this.pickupEta,
+    this.dropoffEta,
   });
   final Ride ride;
   final String pickupStopId;
@@ -352,6 +374,27 @@ class RideOffer {
   final int priceCents;
   final List<String> sharedCommunities;
 
+  /// Vêm da busca por proximidade (search_rides_near).
+  final Stop? pickup;
+  final Stop? dropoff;
+  final int? pickupWalkM;
+  final int? dropoffWalkM;
+  final DateTime? pickupEta;
+  final DateTime? dropoffEta;
+
+  static Stop? _stop(Object? raw) {
+    if (raw == null) return null;
+    final m = Map<String, dynamic>.from(raw as Map);
+    return Stop(
+      id: m['id'] as String,
+      name: m['name'] as String,
+      region: '',
+      point: LatLng((m['lat'] as num).toDouble(), (m['lng'] as num).toDouble()),
+    );
+  }
+
+  static DateTime? _date(Object? raw) => raw == null ? null : DateTime.parse(raw as String).toLocal();
+
   factory RideOffer.fromMap(Map<String, dynamic> m) => RideOffer(
         ride: Ride.fromMap(Map<String, dynamic>.from(m['ride'] as Map)),
         pickupStopId: m['pickup_stop_id'] as String,
@@ -359,7 +402,59 @@ class RideOffer {
         distanceM: (m['distance_m'] as num).toInt(),
         priceCents: (m['price_cents'] as num).toInt(),
         sharedCommunities: [for (final c in (m['shared_communities'] as List? ?? const [])) c as String],
+        pickup: _stop(m['pickup']),
+        dropoff: _stop(m['dropoff']),
+        pickupWalkM: (m['pickup'] as Map?)?['walk_m'] as int?,
+        dropoffWalkM: (m['dropoff'] as Map?)?['walk_m'] as int?,
+        pickupEta: _date(m['pickup_eta']),
+        dropoffEta: _date(m['dropoff_eta']),
       );
+}
+
+/// Carro no mapa. Para quem não tem reserva, a posição vem arredondada (~150 m).
+class NearbyDriver {
+  const NearbyDriver({required this.rideId, required this.point, this.heading, required this.seatsAvailable, required this.isMyRide});
+  final String rideId;
+  final LatLng point;
+  final double? heading;
+  final int seatsAvailable;
+  final bool isMyRide;
+
+  factory NearbyDriver.fromMap(Map<String, dynamic> m) => NearbyDriver(
+        rideId: m['ride_id'] as String,
+        point: LatLng((m['lat'] as num).toDouble(), (m['lng'] as num).toDouble()),
+        heading: (m['heading'] as num?)?.toDouble(),
+        seatsAvailable: (m['seats_available'] as num).toInt(),
+        isMyRide: m['is_my_ride'] as bool? ?? false,
+      );
+}
+
+/// Acompanhamento de uma viagem reservada.
+class RideTracking {
+  const RideTracking({required this.live, this.driverPoint, this.heading, this.pickupEta, this.metersToPickup, required this.status});
+  final bool live;
+  final LatLng? driverPoint;
+  final double? heading;
+  final DateTime? pickupEta;
+  final int? metersToPickup;
+  final RideStatus status;
+
+  factory RideTracking.fromMap(Map<String, dynamic> m) => RideTracking(
+        live: m['live'] as bool? ?? false,
+        driverPoint: m['lat'] == null ? null : LatLng((m['lat'] as num).toDouble(), (m['lng'] as num).toDouble()),
+        heading: (m['heading'] as num?)?.toDouble(),
+        pickupEta: m['pickup_eta'] == null ? null : DateTime.parse(m['pickup_eta'] as String).toLocal(),
+        metersToPickup: (m['meters_to_pickup'] as num?)?.toInt(),
+        status: _enumBySnake(RideStatus.values, m['status'], RideStatus.open),
+      );
+}
+
+/// Lugar vindo da busca de endereços (ou do pin no mapa).
+class Place {
+  const Place({required this.label, required this.point, this.detail});
+  final String label;
+  final String? detail;
+  final LatLng point;
 }
 
 /// Erro já com mensagem pronta para a tela.

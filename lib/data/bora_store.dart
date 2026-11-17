@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -43,8 +44,25 @@ class BoraStore extends ChangeNotifier {
   /// Última busca, para a tela de detalhe reaproveitar sem ir ao servidor de novo.
   final Map<String, RideOffer> _offers = {};
 
+  /// Paradas carregadas sob demanda (são quase 2.000; o app não baixa todas).
+  final Map<String, Stop> _stopCache = {};
+
   Stop stop(String id) =>
-      graph.stops[id] ?? Stop(id: id, name: id, region: '', point: _fallbackPosition);
+      graph.stops[id] ?? _stopCache[id] ?? Stop(id: id, name: 'Parada', region: '', point: _fallbackPosition);
+
+  void _cacheStops(Iterable<Stop> stops) {
+    for (final s in stops) {
+      _stopCache[s.id] = s;
+    }
+  }
+
+  /// Garante nome e posição das paradas citadas em viagens e reservas.
+  Future<void> ensureStops(Iterable<String> ids) async {
+    final missing = ids.where((id) => !graph.stops.containsKey(id) && !_stopCache.containsKey(id)).toSet().toList();
+    if (missing.isEmpty) return;
+    final data = await _client.rpc('stops_by_ids', params: {'p_ids': missing}) as List;
+    _cacheStops([for (final m in data) Stop.fromMap(Map<String, dynamic>.from(m as Map))]);
+  }
 
   RideOffer? offer(String rideId) => _offers[rideId];
   Ride? myRide(String id) => myRides.where((r) => r.id == id).firstOrNull;
@@ -108,7 +126,8 @@ class BoraStore extends ChangeNotifier {
   }
 
   Future<void> _loadGraph() async {
-    final stops = await _client.from('stops').select();
+    // Só as paradas do grafo antigo; as do OpenStreetMap vêm sob demanda.
+    final stops = await _client.from('stops').select().eq('source', 'manual');
     final links = await _client.from('stop_links').select();
     graph = RouteGraph(
       [for (final s in stops) Stop.fromMap(s)],
@@ -140,7 +159,88 @@ class BoraStore extends ChangeNotifier {
     openRidePaths = [
       for (final r in results[2] as List) [for (final s in (r as Map)['path'] as List) s as String],
     ];
+    await ensureStops([
+      for (final r in myRides) ...[if (r.path.isNotEmpty) r.path.first, if (r.path.isNotEmpty) r.path.last],
+      for (final r in myRides) for (final b in r.bookings) ...[b.pickupStopId, b.dropoffStopId],
+      for (final b in myBookings) ...[b.pickupStopId, b.dropoffStopId],
+    ]);
+    _syncPresence();
     notifyListeners();
+  }
+
+  // ------------------------------------------------------------------
+  // Mapa: paradas visíveis, carros por perto, acompanhamento
+  // ------------------------------------------------------------------
+  Future<List<Stop>> stopsInView(LatLngBounds b) async {
+    final data = await _client.rpc('stops_in_view', params: {
+      'p_south': b.south,
+      'p_west': b.west,
+      'p_north': b.north,
+      'p_east': b.east,
+    }) as List;
+    final stops = [for (final m in data) Stop.fromMap(Map<String, dynamic>.from(m as Map))];
+    _cacheStops(stops);
+    return stops;
+  }
+
+  Future<List<NearbyDriver>> nearbyDrivers(LatLng center, {int radiusM = 4000}) async {
+    final data = await _client.rpc('nearby_drivers', params: {
+      'p_lat': center.latitude,
+      'p_lng': center.longitude,
+      'p_radius_m': radiusM,
+    }) as List;
+    return [for (final m in data) NearbyDriver.fromMap(Map<String, dynamic>.from(m as Map))];
+  }
+
+  Future<RideTracking> trackRide(String rideId) async {
+    final data = await _client.rpc('track_ride', params: {'p_ride': rideId});
+    return RideTracking.fromMap(Map<String, dynamic>.from(data as Map));
+  }
+
+  Future<List<LatLng>> rideRoute(String rideId) async {
+    final data = await _client.rpc('ride_route', params: {'p_ride': rideId});
+    if (data == null) return const [];
+    final coords = (data as Map)['coordinates'] as List;
+    return [for (final c in coords) LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())];
+  }
+
+  // Motorista com viagem saindo em breve compartilha a posição (só enquanto durar).
+  Timer? _presenceTimer;
+
+  Ride? get activeDriverRide {
+    final now = DateTime.now();
+    return myRides
+        .where((r) =>
+            r.status == RideStatus.inProgress ||
+            (r.status == RideStatus.open &&
+                r.departureAt.isAfter(now.subtract(const Duration(minutes: 30))) &&
+                r.departureAt.isBefore(now.add(const Duration(minutes: 90)))))
+        .firstOrNull;
+  }
+
+  void _syncPresence() {
+    final active = activeDriverRide != null;
+    if (active && _presenceTimer == null) {
+      unawaited(_sendPresence());
+      _presenceTimer = Timer.periodic(const Duration(seconds: 15), (_) => _sendPresence());
+    } else if (!active && _presenceTimer != null) {
+      _presenceTimer!.cancel();
+      _presenceTimer = null;
+      unawaited(_client.rpc('stop_sharing_location').then((_) {}, onError: (_) {}));
+    }
+  }
+
+  Future<void> _sendPresence() async {
+    try {
+      final p = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 10));
+      position = LatLng(p.latitude, p.longitude);
+      positionIsReal = true;
+      final kept = await _client.rpc('update_my_location',
+          params: {'p_lat': p.latitude, 'p_lng': p.longitude, 'p_heading': p.heading});
+      if (kept == false) _syncPresence();
+    } catch (_) {
+      // sem GPS agora; tenta no próximo ciclo
+    }
   }
 
   /// GPS de verdade, com plano B: sem permissão, ou longe demais do DF, usa a Rodoviária.
@@ -187,7 +287,16 @@ class BoraStore extends ChangeNotifier {
     }
   }
 
-  Future<void> signOut() => _client.auth.signOut();
+  /// Login com Google pelo navegador; volta ao app pelo link br.com.bora://login-callback.
+  Future<void> signInWithGoogle() async {
+    await _client.auth.signInWithOAuth(OAuthProvider.google, redirectTo: 'br.com.bora://login-callback');
+  }
+
+  Future<void> signOut() async {
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    await _client.auth.signOut();
+  }
 
   // ------------------------------------------------------------------
   // Cadastro
@@ -281,6 +390,47 @@ class BoraStore extends ChangeNotifier {
     return id as String;
   }
 
+  /// Publica com a rota real (origem e destino livres).
+  Future<({String rideId, int stops, int distanceM})> publishRideRoute({
+    required String vehicleId,
+    required Map<String, dynamic> routeGeoJson,
+    required String originLabel,
+    required String destLabel,
+    required DateTime departureAt,
+    required int seats,
+    required List<int> recurringDays,
+    required bool womenOnly,
+    required List<String> communityIds,
+  }) async {
+    final data = await _client.rpc('publish_ride_route', params: {
+      'p_vehicle': vehicleId,
+      'p_route': routeGeoJson,
+      'p_origin_label': originLabel,
+      'p_dest_label': destLabel,
+      'p_departure': departureAt.toUtc().toIso8601String(),
+      'p_seats': seats,
+      'p_recurring': recurringDays,
+      'p_women_only': womenOnly,
+      'p_communities': communityIds.isEmpty ? null : communityIds,
+    }) as Map;
+    await refreshTrips();
+    return (
+      rideId: data['ride_id'] as String,
+      stops: (data['stops'] as num).toInt(),
+      distanceM: (data['distance_m'] as num).toInt(),
+    );
+  }
+
+  /// Quantas buscas sem resultado passaram perto desta rota nos últimos 14 dias.
+  Future<int> demandNearRoute(Map<String, dynamic> routeGeoJson) async {
+    try {
+      final n = await _client.rpc('demand_near_route', params: {'p_route': routeGeoJson});
+      return (n as num).toInt();
+    } catch (_) {
+      return 0;
+    }
+  }
+
   Future<void> updateRide(String rideId,
       {required DateTime departureAt, required int seats, required List<int> recurringDays}) async {
     await _client.rpc('update_ride', params: {
@@ -314,6 +464,23 @@ class BoraStore extends ChangeNotifier {
     _offers
       ..clear()
       ..addEntries(offers.map((o) => MapEntry(o.ride.id, o)));
+    return offers;
+  }
+
+  /// Busca por ponto: onde estou -> para onde vou.
+  Future<List<RideOffer>> searchNear({required LatLng from, required LatLng to, bool onlyMyCommunities = false}) async {
+    final data = await _client.rpc('search_rides_near', params: {
+      'p_from_lat': from.latitude,
+      'p_from_lng': from.longitude,
+      'p_to_lat': to.latitude,
+      'p_to_lng': to.longitude,
+      'p_only_my_communities': onlyMyCommunities,
+    }) as List;
+    final offers = [for (final o in data) RideOffer.fromMap(Map<String, dynamic>.from(o as Map))];
+    _offers
+      ..clear()
+      ..addEntries(offers.map((o) => MapEntry(o.ride.id, o)));
+    _cacheStops([for (final o in offers) ...[if (o.pickup != null) o.pickup!, if (o.dropoff != null) o.dropoff!]]);
     return offers;
   }
 
@@ -375,6 +542,7 @@ class BoraStore extends ChangeNotifier {
   @override
   void dispose() {
     _authSub.cancel();
+    _presenceTimer?.cancel();
     super.dispose();
   }
 }
