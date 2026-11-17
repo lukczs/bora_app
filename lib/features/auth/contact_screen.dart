@@ -9,6 +9,7 @@ import '../../app/providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/utils/masks.dart';
+import '../../core/utils/validators.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/step_scaffold.dart';
 import '../../data/errors.dart';

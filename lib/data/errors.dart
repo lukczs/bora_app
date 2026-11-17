@@ -45,7 +45,6 @@ const _messages = <String, String>{
   'Email not confirmed': 'Confirme o e-mail antes de entrar (ou desative a confirmação no painel do Supabase).',
   'User already registered': 'Este e-mail já tem conta. Use "Entrar".',
   'Signups not allowed for otp': 'Não encontramos uma conta com esse contato. Toque em "Criar conta".',
-  'Token has expired or is invalid': 'Código errado ou vencido. Confira ou peça outro.',
   'otp_expired': 'Código vencido. Peça outro.',
   'For security purposes, you can only request this after': 'Espere alguns segundos antes de pedir outro código.',
   'email rate limit exceeded': 'Muitos e-mails enviados agora. Tente de novo em alguns minutos ou use o celular.',
