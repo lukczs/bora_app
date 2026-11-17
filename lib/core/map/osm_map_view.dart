@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -264,7 +265,7 @@ class _Pointer extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawPath(
-        Path()
+        ui.Path()
           ..moveTo(0, 0)
           ..lineTo(size.width / 2, size.height)
           ..lineTo(size.width, 0)

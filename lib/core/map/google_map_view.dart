@@ -143,14 +143,15 @@ class _GoogleMapViewState extends State<GoogleMapView> implements BoraMapDelegat
             anchor: _anchors[_key(p)] ?? const Offset(.5, .5),
             rotation: (p.kind == PinKind.car || p.kind == PinKind.carMine) ? (p.heading ?? 0) : 0,
             flat: p.kind == PinKind.car || p.kind == PinKind.carMine,
-            zIndex: switch (p.kind) {
-              PinKind.stop => 1,
-              PinKind.stopNamed => 2,
-              PinKind.car || PinKind.carMine => 4,
-              PinKind.highlight => 5,
-              _ => 3,
-            } +
-                i / 10000,
+            zIndexInt: switch (p.kind) {
+                  PinKind.stop => 1,
+                  PinKind.stopNamed => 2,
+                  PinKind.car || PinKind.carMine => 4,
+                  PinKind.highlight => 5,
+                  _ => 3,
+                } *
+                    10000 +
+                i,
             consumeTapEvents: p.onTap != null,
             onTap: p.onTap,
           ),

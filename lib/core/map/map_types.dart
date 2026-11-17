@@ -66,11 +66,11 @@ class MapView {
 
 /// Controle do mapa usado pelas telas (mover, enquadrar).
 class BoraMapController {
-  _Delegate? _delegate;
+  BoraMapDelegate? _delegate;
 
   // ignore: use_setters_to_change_properties
-  void attach(_Delegate d) => _delegate = d;
-  void detach(_Delegate d) {
+  void attach(BoraMapDelegate d) => _delegate = d;
+  void detach(BoraMapDelegate d) {
     if (identical(_delegate, d)) _delegate = null;
   }
 
@@ -80,8 +80,6 @@ class BoraMapController {
     await _delegate?.fit(points);
   }
 }
-
-typedef _Delegate = BoraMapDelegate;
 
 abstract class BoraMapDelegate {
   Future<void> moveTo(LatLng p, {double? zoom});

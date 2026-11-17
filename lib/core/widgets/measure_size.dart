@@ -7,14 +7,14 @@ class MeasureSize extends SingleChildRenderObjectWidget {
   final ValueChanged<Size> onChange;
 
   @override
-  RenderObject createRenderObject(BuildContext context) => _RenderMeasure(onChange);
+  RenderObject createRenderObject(BuildContext context) => RenderMeasureSize(onChange);
 
   @override
-  void updateRenderObject(BuildContext context, _RenderMeasure renderObject) => renderObject.onChange = onChange;
+  void updateRenderObject(BuildContext context, RenderMeasureSize renderObject) => renderObject.onChange = onChange;
 }
 
-class _RenderMeasure extends RenderProxyBox {
-  _RenderMeasure(this.onChange);
+class RenderMeasureSize extends RenderProxyBox {
+  RenderMeasureSize(this.onChange);
   ValueChanged<Size> onChange;
   Size? _old;
 
