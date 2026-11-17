@@ -13,3 +13,4 @@ ios/
 # segredos locais
 .env
 *.keystore
+!android-dev/bora-dev.keystore
