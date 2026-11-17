@@ -14,6 +14,7 @@ on:
       - 'supabase/**'
       - '**.md'
       - '.github/workflows/supabase-*.yml'
+      - '.github/workflows/demo-*.yml'
 
 jobs:
   apk:

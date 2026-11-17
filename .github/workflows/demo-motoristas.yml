@@ -1,0 +1,71 @@
+# Motoristas de teste: publica 5 caronas com rota real e faz os carros andarem no mapa.
+# Aba Actions > "Motoristas de teste" > Run workflow.
+# Usa os secrets SUPABASE_DB_URL e ORS_API_KEY.
+name: Motoristas de teste
+
+on:
+  workflow_dispatch:
+    inputs:
+      acao:
+        description: 'publicar ou remover'
+        type: choice
+        options: [publicar, remover]
+        default: publicar
+      saida_em_minutos:
+        description: 'Daqui a quantos minutos o primeiro sai (os outros saem a cada 3 min)'
+        default: '10'
+      simular_minutos:
+        description: 'Por quantos minutos mover os carros no mapa (0 = não mover)'
+        default: '40'
+
+concurrency:
+  group: demo-motoristas
+  cancel-in-progress: true
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      DB: ${{ secrets.SUPABASE_DB_URL }}
+      ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar psql
+        run: sudo apt-get update -q && sudo apt-get install -y -q postgresql-client
+
+      - name: Gerar e aplicar
+        run: |
+          set -euo pipefail
+          python3 supabase/seed/demo_rides.py "${{ inputs.acao }}" "${{ inputs.saida_em_minutos }}" > /tmp/seed.sql
+          psql "$DB" -v ON_ERROR_STOP=1 -P pager=off -f /tmp/seed.sql | grep -vE '^(BEGIN|COMMIT|DELETE|INSERT|UPDATE|SET|$)' || true
+
+      - name: Conferir a busca (passageiro perto do Senac indo para Sobradinho)
+        if: inputs.acao == 'publicar'
+        run: |
+          psql "$DB" -v ON_ERROR_STOP=1 -P pager=off -c "
+            begin;
+            select set_config('request.jwt.claim.sub', 'd0000000-0000-4000-8000-000000000002', true);
+            select set_config('request.jwt.claims', '{\"sub\":\"d0000000-0000-4000-8000-000000000002\"}', true);
+            select o->'ride'->'driver'->>'full_name' as motorista,
+                   o->'pickup'->>'name' as embarque, o->'pickup'->>'walk_m' as anda_m,
+                   o->'dropoff'->>'name' as desembarque, o->>'price_cents' as centavos
+              from jsonb_array_elements(search_rides_near(-15.8205, -47.9200, -15.6790, -47.7500)) o;
+            select r.origin_label || ' -> ' || r.dest_label as viagem,
+                   round(r.distance_m / 1000.0, 1) as km, count(rs.*) as paradas_no_caminho
+              from rides r join ride_stops rs on rs.ride_id = r.id
+             where r.driver_id::text like 'd0000000-0000-4000-8000-%'
+             group by r.id order by r.departure_at;
+            rollback;"
+
+      - name: Mover os carros no mapa
+        if: inputs.acao == 'publicar' && inputs.simular_minutos != '0'
+        run: |
+          end=$(( $(date +%s) + ${{ inputs.simular_minutos }} * 60 ))
+          n=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            psql "$DB" -q -v ON_ERROR_STOP=1 -f supabase/seed/simulate.sql >/dev/null || echo "falhou uma vez"
+            n=$((n+1)); [ $((n % 30)) -eq 0 ] && echo "$(date +%H:%M) carros atualizados ($n vezes)"
+            sleep 10
+          done
