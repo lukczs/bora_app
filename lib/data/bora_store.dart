@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/map/map_types.dart';
 import '../domain/models.dart';
 import 'route_graph.dart';
 
@@ -171,7 +171,7 @@ class BoraStore extends ChangeNotifier {
   // ------------------------------------------------------------------
   // Mapa: paradas visíveis, carros por perto, acompanhamento
   // ------------------------------------------------------------------
-  Future<List<Stop>> stopsInView(LatLngBounds b) async {
+  Future<List<Stop>> stopsInView(GeoBounds b) async {
     final data = await _client.rpc('stops_in_view', params: {
       'p_south': b.south,
       'p_west': b.west,

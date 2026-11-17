@@ -105,8 +105,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
                   interactive: false,
                   fallback: stretch,
                   markers: [
-                    stopMarker(pickup.point, highlight: true, label: 'Embarque'),
-                    stopMarker(dropoff.point, highlight: true, label: 'Destino'),
+                    highlightPin('pickup', pickup.point, 'Embarque · ${pickup.name}'),
+                    highlightPin('dropoff', dropoff.point, 'Destino · ${dropoff.name}'),
                   ],
                 ),
               ),

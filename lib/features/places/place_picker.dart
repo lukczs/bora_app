@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -11,6 +10,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/bora_map.dart';
 import '../../core/widgets/cards.dart';
+import '../../core/widgets/measure_size.dart';
 import '../../data/errors.dart';
 import '../../domain/models.dart';
 
@@ -168,10 +168,10 @@ class MapPickerScreen extends ConsumerStatefulWidget {
 }
 
 class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
-  final _map = MapController();
   late LatLng _center;
   Place? _place;
   bool _moving = false;
+  double _sheetHeight = 190;
   Timer? _debounce;
   int _seq = 0;
 
@@ -185,15 +185,18 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
-    _map.dispose();
     super.dispose();
   }
 
-  void _onMove(MapCamera cam, bool gesture) {
-    _center = cam.center;
+  void _onMove(MapView v) {
+    _center = v.center;
     if (!_moving) setState(() => _moving = true);
+  }
+
+  void _onIdle(MapView v) {
+    _center = v.center;
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 450), () {
+    _debounce = Timer(const Duration(milliseconds: 250), () {
       if (mounted) setState(() => _moving = false);
       _resolve();
     });
@@ -212,8 +215,14 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          BoraMap(controller: _map, center: _center, zoom: 16, onPositionChanged: _onMove),
-          CenterPin(lifted: _moving),
+          BoraMap(
+            center: _center,
+            zoom: 16.5,
+            padding: EdgeInsets.only(bottom: _sheetHeight),
+            onMove: _onMove,
+            onIdle: _onIdle,
+          ),
+          CenterPin(lifted: _moving, bottomInset: _sheetHeight),
           Positioned(
             top: MediaQuery.paddingOf(context).top + Space.sm,
             left: Space.md,
@@ -221,7 +230,9 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
           ),
           Align(
             alignment: Alignment.bottomCenter,
-            child: _SheetBox(
+            child: MeasureSize(
+              onChange: (s) => setState(() => _sheetHeight = s.height),
+              child: _SheetBox(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -255,6 +266,7 @@ class _MapPickerScreenState extends ConsumerState<MapPickerScreen> {
                   ),
                 ],
               ),
+            ),
             ),
           ),
         ],

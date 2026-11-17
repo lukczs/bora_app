@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
@@ -13,6 +12,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/bora_map.dart';
 import '../../core/widgets/cards.dart';
+import '../../core/widgets/measure_size.dart';
 import '../../core/widgets/step_scaffold.dart';
 import '../../data/bora_store.dart';
 import '../../data/errors.dart';
@@ -29,7 +29,7 @@ class MapTab extends ConsumerStatefulWidget {
 }
 
 class _MapTabState extends ConsumerState<MapTab> {
-  final _map = MapController();
+  final _map = BoraMapController();
   _Stage _stage = _Stage.idle;
 
   // Camadas dinâmicas
@@ -39,7 +39,9 @@ class _MapTabState extends ConsumerState<MapTab> {
   Timer? _cameraDebounce;
   Timer? _driversTimer;
   Timer? _trackTimer;
-  MapCamera? _camera;
+  MapView? _camera;
+  double _sheetHeight = 200;
+  static const _namesMinZoom = 16.5; // nomes das paradas aparecem bem de perto
 
   // Fluxo
   Place? _origin;
@@ -64,7 +66,6 @@ class _MapTabState extends ConsumerState<MapTab> {
     _cameraDebounce?.cancel();
     _driversTimer?.cancel();
     _trackTimer?.cancel();
-    _map.dispose();
     super.dispose();
   }
 
@@ -73,23 +74,35 @@ class _MapTabState extends ConsumerState<MapTab> {
   // ------------------------------------------------------------------
   bool _zoomedIn = false;
 
-  void _onCamera(MapCamera cam, bool gesture) {
-    _camera = cam;
-    final zoomed = cam.zoom >= _stopsMinZoom;
-    if (zoomed != _zoomedIn) setState(() => _zoomedIn = zoomed);
+  bool _showNames = false;
+
+  void _onMove(MapView v) {
+    final zoomed = v.zoom >= _stopsMinZoom;
+    final names = v.zoom >= _namesMinZoom;
+    if (zoomed != _zoomedIn || names != _showNames) {
+      setState(() {
+        _zoomedIn = zoomed;
+        _showNames = names;
+      });
+    }
+  }
+
+  void _onIdle(MapView v) {
+    _camera = v;
+    _onMove(v);
     _cameraDebounce?.cancel();
-    _cameraDebounce = Timer(const Duration(milliseconds: 400), _loadStops);
+    _cameraDebounce = Timer(const Duration(milliseconds: 200), _loadStops);
   }
 
   Future<void> _loadStops() async {
     final cam = _camera;
-    if (cam == null || !mounted) return;
+    if (cam == null || cam.bounds == null || !mounted) return;
     if (cam.zoom < _stopsMinZoom) {
       if (_visibleStops.isNotEmpty) setState(() => _visibleStops = const []);
       return;
     }
     try {
-      final stops = await ref.read(storeProvider).stopsInView(cam.visibleBounds);
+      final stops = await ref.read(storeProvider).stopsInView(cam.bounds!);
       if (mounted) setState(() => _visibleStops = stops);
     } catch (_) {}
   }
@@ -107,17 +120,15 @@ class _MapTabState extends ConsumerState<MapTab> {
     final store = ref.read(storeProvider);
     final real = await store.locate(askPermission: true);
     if (!mounted) return;
-    _map.move(store.position, 15.5);
+    await _map.moveTo(store.position, zoom: 15.5);
+    if (!mounted) return;
     if (!real) showBoraError(context, 'Sem acesso ao GPS. Usando a Rodoviária do Plano como referência.');
   }
 
   void _fit(List<LatLng> pts) {
     if (pts.length < 2) return;
-    final bottom = MediaQuery.sizeOf(context).height * .48;
-    _map.fitCamera(CameraFit.bounds(
-      bounds: LatLngBounds.fromPoints(pts),
-      padding: EdgeInsets.fromLTRB(48, MediaQuery.paddingOf(context).top + 80, 48, bottom),
-    ));
+    // Espera o painel de baixo assumir a altura nova antes de enquadrar.
+    Future<void>.delayed(const Duration(milliseconds: 280), () => _map.fit(pts));
   }
 
   // ------------------------------------------------------------------
@@ -252,28 +263,30 @@ class _MapTabState extends ConsumerState<MapTab> {
         .toList()
       ..sort((a, b) => a.ride!.departureAt.compareTo(b.ride!.departureAt));
 
-    final markers = <Marker>[
-      for (final s in _visibleStops)
-        if (_stage == _Stage.idle) stopMarker(s.point, onTap: () => _showStop(s)),
+    final pins = <MapPin>[
+      if (_stage == _Stage.idle)
+        for (final s in _visibleStops)
+          stopPin(s.id, s.point, name: _showNames ? s.name : null, onTap: () => _showStop(s)),
       if (_stage != _Stage.tracking)
-        for (final d in _drivers) carMarker(d.point, heading: d.heading, mine: d.isMyRide),
-      youAreHereMarker(store.position),
-      if (_origin != null && _stage != _Stage.idle && _origin!.label != 'Minha localização')
-        Marker(point: _origin!.point, width: 14, height: 14, child: Container(decoration: const BoxDecoration(color: AppColors.text, shape: BoxShape.circle))),
-      if (_destination != null && _stage != _Stage.idle) destinationMarker(_destination!.point),
-      if (_selected?.pickup != null) stopMarker(_selected!.pickup!.point, highlight: true, label: 'Embarque · ${_selected!.pickup!.name}'),
-      if (_selected?.dropoff != null) stopMarker(_selected!.dropoff!.point, highlight: true, label: 'Desembarque'),
+        for (final d in _drivers) carPin(d.rideId, d.point, heading: d.heading, mine: d.isMyRide),
+      youPin(store.position),
+      if (_origin != null && _stage != _Stage.idle && _origin!.label != 'Minha localização') originPin(_origin!.point),
+      if (_destination != null && _stage != _Stage.idle) destinationPin(_destination!.point),
+      if (_selected?.pickup != null) highlightPin('pickup', _selected!.pickup!.point, 'Embarque · ${_selected!.pickup!.name}'),
+      if (_selected?.dropoff != null) highlightPin('dropoff', _selected!.dropoff!.point, 'Desembarque · ${_selected!.dropoff!.name}'),
       if (_stage == _Stage.tracking && _trackingBooking != null)
-        stopMarker(store.stop(_trackingBooking!.pickupStopId).point, highlight: true, label: 'Seu embarque'),
+        highlightPin('my-pickup', store.stop(_trackingBooking!.pickupStopId).point,
+            'Seu embarque · ${store.stop(_trackingBooking!.pickupStopId).name}'),
       if (_stage == _Stage.tracking && _tracking?.driverPoint != null)
-        carMarker(_tracking!.driverPoint!, heading: _tracking!.heading, mine: true),
+        carPin('tracked', _tracking!.driverPoint!, heading: _tracking!.heading, mine: true),
     ];
 
-    final polylines = <Polyline>[
-      if (_selectedRoute.isNotEmpty) ...boraRoute(_selectedRoute),
-      if (_trackingRoute.isNotEmpty) ...boraRoute(_trackingRoute),
+    final lines = <MapLine>[
+      if (_selectedRoute.isNotEmpty) routeLine('selected', _selectedRoute),
+      if (_trackingRoute.isNotEmpty) routeLine('tracking', _trackingRoute),
     ];
 
+    final top = MediaQuery.paddingOf(context).top;
     return Scaffold(
       body: Stack(
         children: [
@@ -281,9 +294,11 @@ class _MapTabState extends ConsumerState<MapTab> {
             controller: _map,
             center: store.position,
             zoom: 14,
-            markers: markers,
-            polylines: polylines,
-            onPositionChanged: _onCamera,
+            pins: pins,
+            lines: lines,
+            padding: EdgeInsets.only(top: top + 64, bottom: _sheetHeight),
+            onMove: _onMove,
+            onIdle: _onIdle,
           ),
           // Topo
           Positioned(
@@ -313,9 +328,15 @@ class _MapTabState extends ConsumerState<MapTab> {
                     sub: store.activeDriverRide != null ? 'Compartilhando localização' : null,
                   ),
                 const Spacer(),
-                RoundIconButton(icon: Icons.my_location, tooltip: 'Minha localização', onPressed: _centerOnMe),
               ],
             ),
+          ),
+          // Botão "minha localização" logo acima do painel (posição padrão de app de mapa)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 200),
+            right: Space.md,
+            bottom: _sheetHeight + Space.sm,
+            child: RoundIconButton(icon: Icons.my_location, tooltip: 'Minha localização', onPressed: _centerOnMe),
           ),
           if (_stage == _Stage.idle && !_zoomedIn)
             Positioned(
@@ -324,7 +345,15 @@ class _MapTabState extends ConsumerState<MapTab> {
               right: 0,
               child: const Center(child: _Hint('Aproxime o mapa para ver as paradas')),
             ),
-          Align(alignment: Alignment.bottomCenter, child: _sheet(store, upcoming)),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: MeasureSize(
+              onChange: (sz) {
+                if ((sz.height - _sheetHeight).abs() > 4) setState(() => _sheetHeight = sz.height);
+              },
+              child: _sheet(store, upcoming),
+            ),
+          ),
         ],
       ),
     );

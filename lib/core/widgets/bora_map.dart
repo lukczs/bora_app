@@ -1,13 +1,18 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../app/env.dart';
+import '../map/google_map_view.dart';
+import '../map/map_types.dart';
+import '../map/osm_map_view.dart';
 import '../theme/app_colors.dart';
 import '../theme/tokens.dart';
 
-/// Mapa real (OpenStreetMap, sem chave de API) com o tema escuro do Bora.
+export '../map/map_types.dart';
+
+/// Mapa do Bora. Usa o Google Maps quando o app é gerado com a chave
+/// (MAPS_API_KEY no GitHub); sem chave, usa o mapa escuro do OpenStreetMap.
+/// As telas falam só com este widget, então trocar de mapa não mexe nelas.
 class BoraMap extends StatelessWidget {
   const BoraMap({
     super.key,
@@ -15,200 +20,141 @@ class BoraMap extends StatelessWidget {
     this.center = const LatLng(-15.79, -47.88),
     this.zoom = 12,
     this.fitPoints,
-    this.fitPadding = const EdgeInsets.all(48),
-    this.polylines = const [],
-    this.markers = const [],
+    this.pins = const [],
+    this.lines = const [],
     this.interactive = true,
-    this.onPositionChanged,
-    this.onMapReady,
+    this.padding = EdgeInsets.zero,
+    this.onMove,
+    this.onMoveStart,
+    this.onIdle,
     this.onTap,
   });
 
-  final MapController? controller;
+  final BoraMapController? controller;
   final LatLng center;
   final double zoom;
 
   /// Se informado, o mapa abre enquadrando estes pontos.
   final List<LatLng>? fitPoints;
-  final EdgeInsets fitPadding;
-  final List<Polyline> polylines;
-  final List<Marker> markers;
+  final List<MapPin> pins;
+  final List<MapLine> lines;
   final bool interactive;
-  final void Function(MapCamera camera, bool hasGesture)? onPositionChanged;
-  final VoidCallback? onMapReady;
+
+  /// Área coberta por elementos por cima do mapa (bottom sheet, barra do topo).
+  /// O enquadramento e o logo do mapa respeitam esse espaço.
+  final EdgeInsets padding;
+
+  /// A cada movimento da câmera.
+  final void Function(MapView view)? onMove;
+  final VoidCallback? onMoveStart;
+
+  /// Quando a câmera para (com os limites visíveis).
+  final void Function(MapView view)? onIdle;
   final void Function(LatLng point)? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final fit = fitPoints != null && fitPoints!.length > 1
-        ? CameraFit.bounds(bounds: LatLngBounds.fromPoints(fitPoints!), padding: fitPadding)
-        : null;
-
-    return FlutterMap(
-      mapController: controller,
-      options: MapOptions(
-        initialCenter: center,
-        initialZoom: zoom,
-        initialCameraFit: fit,
-        minZoom: 9,
-        maxZoom: 18.5,
-        backgroundColor: AppColors.night,
-        onPositionChanged: onPositionChanged == null ? null : (c, g) => onPositionChanged!(c, g),
-        onMapReady: onMapReady,
-        onTap: onTap == null ? null : (_, p) => onTap!(p),
-        interactionOptions: InteractionOptions(
-          flags: interactive ? InteractiveFlag.all & ~InteractiveFlag.rotate : InteractiveFlag.none,
-        ),
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'br.com.bora',
-          tileBuilder: darkModeTileBuilder,
-        ),
-        if (polylines.isNotEmpty) PolylineLayer(polylines: polylines),
-        if (markers.isNotEmpty) MarkerLayer(markers: markers),
-        const SimpleAttributionWidget(
-          source: Text('© OpenStreetMap', style: TextStyle(fontSize: 10)),
-          backgroundColor: AppColors.scrim,
-          alignment: Alignment.bottomLeft,
-        ),
-      ],
-    );
+    return Env.googleMapsEnabled
+        ? GoogleMapView(
+            controller: controller,
+            center: center,
+            zoom: zoom,
+            fitPoints: fitPoints,
+            pins: pins,
+            lines: lines,
+            interactive: interactive,
+            padding: padding,
+            onMove: onMove,
+            onMoveStart: onMoveStart,
+            onIdle: onIdle,
+            onTap: onTap,
+          )
+        : OsmMapView(
+            controller: controller,
+            center: center,
+            zoom: zoom,
+            fitPoints: fitPoints,
+            pins: pins,
+            lines: lines,
+            interactive: interactive,
+            padding: padding,
+            onMove: onMove,
+            onMoveStart: onMoveStart,
+            onIdle: onIdle,
+            onTap: onTap,
+          );
   }
 }
 
-/// Rota: traço verde com contorno escuro (fica legível sobre qualquer rua).
-List<Polyline> boraRoute(List<LatLng> points, {bool faint = false}) => [
-      Polyline(points: points, strokeWidth: faint ? 5 : 8, color: AppColors.night),
-      Polyline(points: points, strokeWidth: faint ? 3 : 5, color: faint ? const Color(0x8822C55E) : AppColors.green),
-    ];
+// ---------------------------------------------------------------------------
+// Atalhos para montar marcadores e linhas
+// ---------------------------------------------------------------------------
 
-/// Compatibilidade com telas antigas.
-Polyline boraRouteLine(List<LatLng> points, {bool faint = false}) => boraRoute(points, faint: faint).last;
+/// Parada de ônibus. Com [name], mostra o nome ao lado (use com zoom alto).
+MapPin stopPin(String id, LatLng point, {String? name, VoidCallback? onTap}) =>
+    MapPin(id: 'stop-$id', point: point, kind: name == null ? PinKind.stop : PinKind.stopNamed, label: name, onTap: onTap);
 
-/// Parada: ponto discreto (estilo Moovit). Destacada vira um selo com nome.
-Marker stopMarker(LatLng point, {VoidCallback? onTap, bool highlight = false, String? label}) => Marker(
-      point: point,
-      width: highlight ? 160 : 22,
-      height: highlight ? 58 : 22,
-      alignment: highlight ? Alignment.topCenter : Alignment.center,
-      child: GestureDetector(
-        onTap: onTap,
-        child: highlight
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (label != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                          color: AppColors.surfaceRaised, borderRadius: BorderRadius.circular(6), boxShadow: Shadows.soft),
-                      child: Text(label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppText.caption.copyWith(color: AppColors.text, fontWeight: FontWeight.w700)),
-                    ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 18,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      color: AppColors.green,
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(color: AppColors.night, width: 2.5),
-                    ),
-                  ),
-                ],
-              )
-            : Center(
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: AppColors.night,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.green, width: 2.5),
-                  ),
-                ),
-              ),
-      ),
-    );
+/// Embarque/desembarque em destaque.
+MapPin highlightPin(String id, LatLng point, String label, {VoidCallback? onTap}) =>
+    MapPin(id: 'hl-$id', point: point, kind: PinKind.highlight, label: label, onTap: onTap);
 
-/// Carro no mapa (estilo 99): ícone de veículo girado na direção do movimento.
-Marker carMarker(LatLng point, {double? heading, bool mine = false, VoidCallback? onTap}) => Marker(
-      point: point,
-      width: 36,
-      height: 36,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Transform.rotate(
-          angle: (heading ?? 0) * math.pi / 180,
-          child: Container(
-            decoration: BoxDecoration(
-              color: mine ? AppColors.green : AppColors.surfaceRaised,
-              shape: BoxShape.circle,
-              border: Border.all(color: mine ? AppColors.night : AppColors.green, width: 2),
-              boxShadow: Shadows.soft,
-            ),
-            child: Icon(Icons.directions_car_filled, size: 18, color: mine ? AppColors.night : AppColors.text),
-          ),
-        ),
-      ),
-    );
+MapPin carPin(String id, LatLng point, {double? heading, bool mine = false, VoidCallback? onTap}) =>
+    MapPin(id: 'car-$id', point: point, kind: mine ? PinKind.carMine : PinKind.car, heading: heading, onTap: onTap);
 
-Marker youAreHereMarker(LatLng point) => Marker(
-      point: point,
-      width: 22,
-      height: 22,
-      child: Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.user,
-          border: Border.all(color: Colors.white, width: 3),
-          boxShadow: const [BoxShadow(color: Color(0x8038BDF8), blurRadius: 14, spreadRadius: 2)],
-        ),
-      ),
-    );
+MapPin youPin(LatLng point) => MapPin(id: 'you', point: point, kind: PinKind.you);
+MapPin originPin(LatLng point) => MapPin(id: 'origin', point: point, kind: PinKind.origin);
+MapPin destinationPin(LatLng point) => MapPin(id: 'destination', point: point, kind: PinKind.destination);
 
-/// Bandeira de destino.
-Marker destinationMarker(LatLng point) => Marker(
-      point: point,
-      width: 20,
-      height: 20,
-      child: Container(
-        decoration: BoxDecoration(color: AppColors.text, border: Border.all(color: AppColors.night, width: 3)),
-      ),
-    );
+MapLine routeLine(String id, List<LatLng> points, {bool faint = false}) => MapLine(id: id, points: points, faint: faint);
 
 /// Pin fixo no centro da tela para "Escolher no mapa". Sobe enquanto o mapa se move.
 class CenterPin extends StatelessWidget {
-  const CenterPin({super.key, this.lifted = false});
+  const CenterPin({super.key, this.lifted = false, this.bottomInset = 0});
   final bool lifted;
+
+  /// Mesmo valor do padding inferior do mapa, para o pin ficar no centro real.
+  final double bottomInset;
 
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
-      child: Center(
-        child: Transform.translate(
-          offset: const Offset(0, -26),
-          child: AnimatedSlide(
-            duration: const Duration(milliseconds: 150),
-            offset: Offset(0, lifted ? -.25 : 0),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Center(
+          child: Transform.translate(
+            offset: const Offset(0, -23),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: AppColors.text,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.night, width: 8),
-                    boxShadow: Shadows.soft,
+                AnimatedSlide(
+                  duration: const Duration(milliseconds: 150),
+                  offset: Offset(0, lifted ? -.35 : 0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: AppColors.text,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.night, width: 8),
+                          boxShadow: Shadows.soft,
+                        ),
+                      ),
+                      Container(width: 3, height: 18, color: AppColors.text),
+                    ],
                   ),
                 ),
-                Container(width: 3, height: 18, color: AppColors.text),
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 150),
+                  opacity: lifted ? 1 : 0,
+                  child: Container(
+                    width: 8,
+                    height: 4,
+                    decoration: BoxDecoration(color: const Color(0x99000000), borderRadius: BorderRadius.circular(4)),
+                  ),
+                ),
               ],
             ),
           ),

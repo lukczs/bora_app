@@ -63,10 +63,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
             height: 230,
             child: BoraMap(
               fitPoints: myStretch,
-              polylines: [boraRouteLine(store.graph.pointsOf(ride.path), faint: true), boraRouteLine(myStretch)],
-              markers: [
-                stopMarker(pickup.point, highlight: true, label: 'Embarque'),
-                stopMarker(dropoff.point, highlight: true, label: 'Destino'),
+              lines: [routeLine('full', store.graph.pointsOf(ride.path), faint: true), routeLine('mine', myStretch)],
+              pins: [
+                highlightPin('pickup', pickup.point, 'Embarque · ${pickup.name}'),
+                highlightPin('dropoff', dropoff.point, 'Destino · ${dropoff.name}'),
               ],
             ),
           ),

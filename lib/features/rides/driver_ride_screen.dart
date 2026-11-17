@@ -90,7 +90,7 @@ class _DriverRideScreenState extends ConsumerState<DriverRideScreen> {
                   fallback: points,
                   markers: [
                     for (final id in ride.path.where((id) => store.stop(id).boardable))
-                      stopMarker(store.stop(id).point),
+                      stopPin(id, store.stop(id).point),
                   ],
                 ),
               ),

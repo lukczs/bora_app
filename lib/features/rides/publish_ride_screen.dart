@@ -192,9 +192,8 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
                   child: BoraMap(
                     interactive: false,
                     fitPoints: _plan!.points,
-                    fitPadding: const EdgeInsets.all(28),
-                    polylines: boraRoute(_plan!.points),
-                    markers: [destinationMarker(_plan!.points.last)],
+                    lines: [routeLine('plan', _plan!.points)],
+                    pins: [originPin(_plan!.points.first), destinationPin(_plan!.points.last)],
                   ),
                 ),
               ),

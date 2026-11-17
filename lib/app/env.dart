@@ -17,6 +17,9 @@ class Env {
   /// Liga o botão "Continuar com Google" (precisa do provedor Google configurado no Supabase).
   static const googleAuthEnabled = bool.fromEnvironment('GOOGLE_AUTH');
 
+  /// Usa o Google Maps (o workflow liga quando existe o secret MAPS_API_KEY).
+  static const googleMapsEnabled = bool.fromEnvironment('GOOGLE_MAPS');
+
   static bool get isConfigured =>
       supabaseUrl.startsWith('https://') && !supabaseAnonKey.startsWith('COLE_AQUI');
 }
