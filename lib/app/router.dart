@@ -8,7 +8,6 @@ import '../data/bora_store.dart';
 import '../data/errors.dart';
 import '../features/auth/dev_login_screen.dart';
 import '../features/auth/otp_screen.dart';
-import '../features/auth/phone_screen.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/bookings/booking_screen.dart';
 import '../features/communities/community_screens.dart';
@@ -16,7 +15,9 @@ import '../features/home/home_shell.dart';
 import '../features/onboarding/document_screen.dart';
 import '../features/onboarding/emergency_contact_screen.dart';
 import '../features/onboarding/location_screen.dart';
+import '../features/onboarding/profile_screen.dart';
 import '../features/onboarding/register_screen.dart';
+import '../features/auth/contact_screen.dart';
 import '../features/rides/driver_ride_screen.dart';
 import '../features/rides/publish_ride_screen.dart';
 import '../features/rides/vehicle_form_screen.dart';
@@ -32,7 +33,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: store,
     redirect: (context, state) {
       final path = state.matchedLocation;
-      final inAuth = const ['/welcome', '/phone', '/otp', '/dev-login'].contains(path);
+      final inAuth = const ['/welcome', '/signup', '/login', '/verify', '/dev-login'].contains(path);
       final inOnboarding = path.startsWith('/onboarding');
 
       switch (store.status) {
@@ -42,7 +43,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         case GateStatus.signedOut:
           return inAuth ? null : '/welcome';
         case GateStatus.needsOnboarding:
-          return inOnboarding ? null : '/onboarding/register';
+          return inOnboarding ? null : _resumeOnboarding(store);
         case GateStatus.ready:
           return (inAuth || inOnboarding || path == '/splash') ? '/home' : null;
       }
@@ -50,13 +51,21 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const _Splash()),
       GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
-      GoRoute(path: '/phone', builder: (_, __) => const PhoneScreen()),
+      GoRoute(path: '/signup', builder: (_, __) => const ContactScreen(signup: true)),
+      GoRoute(path: '/login', builder: (_, __) => const ContactScreen(signup: false)),
       GoRoute(
-        path: '/otp',
-        builder: (_, s) => OtpScreen(phoneE164: s.uri.queryParameters['phone'] ?? ''),
+        path: '/verify',
+        builder: (_, s) => OtpScreen(
+          channel: s.uri.queryParameters['channel'] ?? 'sms',
+          to: s.uri.queryParameters['to'] ?? '',
+          signup: s.uri.queryParameters['signup'] != 'false',
+        ),
       ),
       GoRoute(path: '/dev-login', builder: (_, __) => const DevLoginScreen()),
-      GoRoute(path: '/onboarding/register', builder: (_, __) => const RegisterScreen()),
+      GoRoute(path: '/onboarding/profile', builder: (_, __) => const ProfileScreen()),
+      GoRoute(path: '/onboarding/terms', builder: (_, __) => const TermsScreen()),
+      GoRoute(path: '/onboarding/payment', builder: (_, __) => const PaymentScreen()),
+      GoRoute(path: '/onboarding/identity', builder: (_, __) => const RegisterScreen()),
       GoRoute(path: '/onboarding/emergency', builder: (_, __) => const EmergencyContactScreen()),
       GoRoute(path: '/onboarding/document', builder: (_, __) => const DocumentScreen()),
       GoRoute(path: '/onboarding/location', builder: (_, __) => const LocationScreen()),
@@ -111,4 +120,14 @@ class _Splash extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Volta para a etapa do cadastro onde a pessoa parou.
+String _resumeOnboarding(BoraStore store) {
+  final me = store.me;
+  if (me == null || me.firstNameRaw == null || me.lastName == null) return '/onboarding/profile';
+  if (!me.termsAccepted) return '/onboarding/terms';
+  if (!me.hasCpf) return '/onboarding/identity';
+  if (me.emergencyContact == null) return '/onboarding/emergency';
+  return '/onboarding/document';
 }

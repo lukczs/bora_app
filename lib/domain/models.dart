@@ -85,9 +85,23 @@ class AppUser {
     required this.ratingAvg,
     required this.ratingCount,
     this.emergencyContact,
+    this.email,
+    this.firstNameRaw,
+    this.lastName,
+    this.language = 'pt-BR',
+    this.termsAccepted = false,
+    this.paymentPref,
+    this.hasCpf = false,
   });
   final String id;
   final String? phone;
+  final String? email;
+  final String? firstNameRaw;
+  final String? lastName;
+  final String language;
+  final bool termsAccepted;
+  final String? paymentPref;
+  final bool hasCpf;
   final String? fullName;
   final Gender? gender;
   final VerificationStatus identityStatus;
@@ -97,11 +111,17 @@ class AppUser {
   final int ratingCount;
   final EmergencyContact? emergencyContact;
 
-  String get firstName => (fullName ?? '').trim().split(' ').first;
+  String get firstName => (firstNameRaw ?? (fullName ?? '').trim().split(' ').first);
 
   factory AppUser.fromMap(Map<String, dynamic> m) => AppUser(
         id: m['id'] as String,
         phone: m['phone'] as String?,
+        firstNameRaw: m['first_name'] as String?,
+        lastName: m['last_name'] as String?,
+        language: m['preferred_language'] as String? ?? 'pt-BR',
+        termsAccepted: m['terms_accepted_at'] != null,
+        paymentPref: m['payment_pref'] as String?,
+        hasCpf: m['cpf'] != null,
         fullName: m['full_name'] as String?,
         gender: _gender(m['gender']),
         identityStatus: _enumBySnake(VerificationStatus.values, m['identity_status'], VerificationStatus.pending),

@@ -9,6 +9,7 @@ import '../../core/utils/validators.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/step_scaffold.dart';
 import '../../domain/models.dart';
+import 'profile_screen.dart' show onboardingSteps;
 
 class EmergencyContactScreen extends ConsumerStatefulWidget {
   const EmergencyContactScreen({super.key});
@@ -51,8 +52,8 @@ class _EmergencyContactScreenState extends ConsumerState<EmergencyContactScreen>
   @override
   Widget build(BuildContext context) {
     return StepScaffold(
-      step: 2,
-      totalSteps: 4,
+      step: 6,
+      totalSteps: onboardingSteps,
       title: 'Contato de emergência',
       subtitle:
           'Sempre que uma carona começar, essa pessoa recebe um link para acompanhar sua viagem em tempo real.',

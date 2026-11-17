@@ -269,10 +269,31 @@ class BoraStore extends ChangeNotifier {
   // ------------------------------------------------------------------
   // Autenticação
   // ------------------------------------------------------------------
-  Future<void> sendCode(String phoneE164) => _client.auth.signInWithOtp(phone: phoneE164);
+  Future<void> sendCode(String phoneE164, {bool create = true}) =>
+      _client.auth.signInWithOtp(phone: phoneE164, shouldCreateUser: create);
 
   Future<void> verifyCode({required String phoneE164, required String code}) =>
       _client.auth.verifyOTP(phone: phoneE164, token: code, type: OtpType.sms);
+
+  /// Código por e-mail (alternativa ao SMS).
+  Future<void> sendEmailCode(String email, {bool create = true}) =>
+      _client.auth.signInWithOtp(email: email.trim().toLowerCase(), shouldCreateUser: create);
+
+  Future<void> verifyEmailCode({required String email, required String code}) =>
+      _client.auth.verifyOTP(email: email.trim().toLowerCase(), token: code, type: OtpType.email);
+
+  /// Login social (Google, Apple, Facebook) pelo navegador.
+  Future<void> signInWithProvider(OAuthProvider provider) async {
+    await _client.auth.signInWithOAuth(provider, redirectTo: 'br.com.bora://login-callback');
+  }
+
+  /// Senha opcional criada no cadastro (para entrar sem código depois).
+  Future<void> setPassword(String password) async {
+    await _client.auth.updateUser(UserAttributes(password: password));
+  }
+
+  String? get authEmail => _client.auth.currentUser?.email;
+  String? get authPhone => _client.auth.currentUser?.phone;
 
   /// Entrada alternativa para desenvolvimento, enquanto o SMS não está configurado.
   Future<void> devEmailSignIn({required String email, required String password, required bool create}) async {
@@ -301,6 +322,37 @@ class BoraStore extends ChangeNotifier {
   // ------------------------------------------------------------------
   // Cadastro
   // ------------------------------------------------------------------
+  Future<void> saveBasicProfile({required String firstName, required String lastName, required String language}) async {
+    await _client.rpc('save_basic_profile',
+        params: {'p_first_name': firstName, 'p_last_name': lastName, 'p_language': language});
+    await refreshProfile();
+  }
+
+  Future<void> acceptTerms() async {
+    await _client.rpc('accept_terms');
+    await refreshProfile();
+  }
+
+  Future<void> setPaymentPref(String? pref) async {
+    await _client.rpc('set_payment_pref', params: {'p_pref': pref ?? ''});
+    await refreshProfile();
+  }
+
+  Future<void> submitIdentity({
+    required String cpfDigits,
+    required DateTime birthDate,
+    required Gender gender,
+    required bool womenOnlyPref,
+  }) async {
+    await _client.rpc('submit_identity', params: {
+      'p_cpf': cpfDigits,
+      'p_birth_date': birthDate.toIso8601String().substring(0, 10),
+      'p_gender': enumToSnake(gender),
+      'p_women_only_pref': womenOnlyPref,
+    });
+    await refreshProfile();
+  }
+
   Future<void> submitRegistration({
     required String fullName,
     required String cpfDigits,

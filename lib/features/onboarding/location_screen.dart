@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import 'profile_screen.dart' show onboardingSteps;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
@@ -20,8 +23,7 @@ class _LocationScreenState extends ConsumerState<LocationScreen> {
     setState(() => _loading = true);
     try {
       if (ask) await ref.read(storeProvider).locate(askPermission: true);
-      // Concluir o cadastro muda o status, e o router leva para a Home.
-      await ref.read(storeProvider).finishOnboarding();
+      if (mounted) context.push('/onboarding/identity');
     } catch (e) {
       if (mounted) showBoraError(context, friendlyError(e));
     } finally {
@@ -33,7 +35,7 @@ class _LocationScreenState extends ConsumerState<LocationScreen> {
   Widget build(BuildContext context) {
     return StepScaffold(
       step: 4,
-      totalSteps: 4,
+      totalSteps: onboardingSteps,
       title: 'Onde você está?',
       subtitle:
           'Com a sua localização o Bora sugere o ponto de embarque mais próximo e mostra a viagem para o seu contato de emergência.',

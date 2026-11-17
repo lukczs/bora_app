@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'profile_screen.dart' show onboardingSteps;
 
 import '../../app/providers.dart';
 import '../../data/errors.dart';
@@ -28,8 +29,10 @@ class _DocumentScreenState extends ConsumerState<DocumentScreen> {
     }
     setState(() => _loading = true);
     try {
-      await ref.read(storeProvider).submitIdentityDocuments();
-      if (mounted) context.push('/onboarding/location');
+      final store = ref.read(storeProvider);
+      await store.submitIdentityDocuments();
+      // Concluir o cadastro muda o status, e o router leva para o Início.
+      await store.finishOnboarding();
     } catch (e) {
       if (mounted) showBoraError(context, friendlyError(e));
     } finally {
@@ -40,8 +43,8 @@ class _DocumentScreenState extends ConsumerState<DocumentScreen> {
   @override
   Widget build(BuildContext context) {
     return StepScaffold(
-      step: 3,
-      totalSteps: 4,
+      step: 7,
+      totalSteps: onboardingSteps,
       title: 'Confirme que é você',
       subtitle:
           'Uma pessoa da equipe Bora confere o documento com a selfie. É isso que garante que todo mundo aqui é quem diz ser.',

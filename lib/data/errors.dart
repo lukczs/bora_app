@@ -10,6 +10,9 @@ const _messages = <String, String>{
 
   'cpf_already_registered': 'Este CPF já está cadastrado em outra conta.',
   'invalid_cpf': 'CPF inválido.',
+  'invalid_first_name': 'Digite o seu nome.',
+  'invalid_last_name': 'Digite o seu sobrenome.',
+  'terms_required': 'É preciso aceitar os Termos de Uso para continuar.',
   'must_be_adult': 'É preciso ter 18 anos ou mais para usar o Bora.',
   'identity_locked': 'Seus dados já foram verificados e não podem ser alterados por aqui.',
   'identity_not_verified': 'Sua identidade ainda está em verificação. Isso libera após a aprovação.',
@@ -41,6 +44,13 @@ const _messages = <String, String>{
   'Invalid login credentials': 'E-mail ou senha incorretos.',
   'Email not confirmed': 'Confirme o e-mail antes de entrar (ou desative a confirmação no painel do Supabase).',
   'User already registered': 'Este e-mail já tem conta. Use "Entrar".',
+  'Signups not allowed for otp': 'Não encontramos uma conta com esse contato. Toque em "Criar conta".',
+  'Token has expired or is invalid': 'Código errado ou vencido. Confira ou peça outro.',
+  'otp_expired': 'Código vencido. Peça outro.',
+  'For security purposes, you can only request this after': 'Espere alguns segundos antes de pedir outro código.',
+  'email rate limit exceeded': 'Muitos e-mails enviados agora. Tente de novo em alguns minutos ou use o celular.',
+  'Unsupported phone provider': 'O envio de SMS ainda não está configurado no Supabase. Use o e-mail por enquanto.',
+  'Password should be at least': 'A senha precisa ter pelo menos 6 caracteres.',
 };
 
 /// Converte qualquer erro (banco, auth, rede) numa frase para a pessoa ler.

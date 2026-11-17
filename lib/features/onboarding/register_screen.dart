@@ -10,6 +10,7 @@ import '../../core/utils/validators.dart';
 import '../../core/widgets/bora_button.dart';
 import '../../core/widgets/step_scaffold.dart';
 import '../../domain/models.dart';
+import 'profile_screen.dart' show onboardingSteps;
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -19,7 +20,6 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _form = GlobalKey<FormState>();
-  final _name = TextEditingController();
   final _cpf = TextEditingController();
   final _birth = TextEditingController();
   Gender? _gender;
@@ -28,7 +28,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   void dispose() {
-    _name.dispose();
     _cpf.dispose();
     _birth.dispose();
     super.dispose();
@@ -42,8 +41,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
     setState(() => _loading = true);
     try {
-      await ref.read(storeProvider).submitRegistration(
-            fullName: _name.text.trim(),
+      await ref.read(storeProvider).submitIdentity(
             cpfDigits: onlyDigits(_cpf.text),
             birthDate: parseBrDate(_birth.text)!,
             gender: _gender!,
@@ -60,11 +58,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return StepScaffold(
-      step: 1,
-      totalSteps: 4,
-      canGoBack: false,
-      title: 'Quem é você?',
-      subtitle: 'Seus dados passam por verificação. CPF e telefone nunca aparecem para outras pessoas.',
+      step: 5,
+      totalSteps: onboardingSteps,
+      title: 'Verificação de segurança',
+      subtitle: 'No Bora todo mundo é verificado. CPF e data de nascimento nunca aparecem para outras pessoas.',
       action: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -80,15 +77,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextFormField(
-              controller: _name,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Nome completo'),
-              validator: (v) => (v ?? '').trim().split(RegExp(r'\s+')).length < 2
-                  ? 'Digite nome e sobrenome, como no documento.'
-                  : null,
-            ),
-            const SizedBox(height: 14),
             TextFormField(
               controller: _cpf,
               keyboardType: TextInputType.number,
