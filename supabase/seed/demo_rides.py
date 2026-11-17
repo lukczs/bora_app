@@ -26,7 +26,7 @@ KEY = __import__("os").environ.get("ORS_API_KEY", "")
 DRIVERS = [
     ("Mariana Teste", "female", "Fiat Argo", "TST1A01", "Prata", 3,
      ("Faculdade Senac · 713/913 Sul", -15.819945, -47.921497, None),
-     ("Condomínio RK · Sobradinho", -15.6765, -47.7480, "Condomínio RK, Sobradinho")),
+     ("Condomínio RK · Região dos Lagos", -15.6900, -47.7780, None)),  # entre a DF-001 e a DF-440 (SEDUH)
     ("Rafael Teste", "male", "VW Gol", "TST1A02", "Branco", 3,
      ("SQS 107 · Asa Sul", -15.8080, -47.8940, None),
      ("Candangolândia", -15.8510, -47.9505, None)),

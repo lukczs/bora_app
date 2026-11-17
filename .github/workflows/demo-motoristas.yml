@@ -51,7 +51,7 @@ jobs:
             select o->'ride'->'driver'->>'full_name' as motorista,
                    o->'pickup'->>'name' as embarque, o->'pickup'->>'walk_m' as anda_m,
                    o->'dropoff'->>'name' as desembarque, o->>'price_cents' as centavos
-              from jsonb_array_elements(search_rides_near(-15.8205, -47.9200, -15.6790, -47.7500)) o;
+              from jsonb_array_elements(search_rides_near(-15.8205, -47.9200, -15.6905, -47.7785)) o;
             select r.origin_label || ' -> ' || r.dest_label as viagem,
                    round(r.distance_m / 1000.0, 1) as km, count(rs.*) as paradas_no_caminho
               from rides r join ride_stops rs on rs.ride_id = r.id
