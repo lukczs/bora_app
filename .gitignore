@@ -1,0 +1,15 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+.packages
+*.iml
+.idea/
+.vscode/
+# gerado pelo workflow
+android/
+ios/
+# segredos locais
+.env
+*.keystore

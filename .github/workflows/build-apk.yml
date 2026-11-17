@@ -2,6 +2,7 @@
 # Antes: Settings > Secrets and variables > Actions > New repository secret
 #   SUPABASE_URL       = https://SEU-PROJETO.supabase.co
 #   SUPABASE_ANON_KEY  = chave "anon public" (Settings > API no Supabase)
+#   ORS_API_KEY        = token da OpenRouteService (rotas)
 # Depois: aba Actions > "Gerar APK" > Run workflow. O APK sai em "Artifacts".
 name: Gerar APK
 
@@ -9,6 +10,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - 'supabase/**'
+      - '**.md'
+      - '.github/workflows/supabase-*.yml'
 
 jobs:
   apk:
@@ -51,7 +56,8 @@ jobs:
         run: |
           flutter build apk --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
-            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+            --dart-define=ORS_API_KEY=${{ secrets.ORS_API_KEY }}
 
       - uses: actions/upload-artifact@v4
         with:

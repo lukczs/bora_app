@@ -1,0 +1,50 @@
+# Aplica no Supabase as migrations novas da pasta supabase/migrations.
+# Cada arquivo roda uma vez só, inteiro ou nada (transação), em ordem de nome.
+# O que já rodou fica registrado na tabela bora_ops.applied_migrations.
+#
+# Antes: Settings > Secrets and variables > Actions > New repository secret
+#   SUPABASE_DB_URL = connection string do "Session pooler" do Supabase
+#     (Supabase > Connect > Session pooler; troque [YOUR-PASSWORD] pela senha do banco)
+name: Supabase migrations
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+
+concurrency:
+  group: supabase-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar psql
+        run: sudo apt-get update -q && sudo apt-get install -y -q postgresql-client
+
+      - name: Aplicar migrations pendentes
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DB" ]; then echo "::error::Falta o secret SUPABASE_DB_URL"; exit 1; fi
+          psql "$DB" -v ON_ERROR_STOP=1 -q -c "
+            create schema if not exists bora_ops;
+            revoke all on schema bora_ops from public, anon, authenticated;
+            create table if not exists bora_ops.applied_migrations (
+              name text primary key, applied_at timestamptz not null default now());"
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            name=$(basename "$f")
+            done_already=$(psql "$DB" -At -c "select 1 from bora_ops.applied_migrations where name = '$name'")
+            if [ "$done_already" = "1" ]; then echo "= $name (já aplicada)"; continue; fi
+            echo "> aplicando $name"
+            psql "$DB" -v ON_ERROR_STOP=1 -q --single-transaction \
+              -f "$f" \
+              -c "insert into bora_ops.applied_migrations (name) values ('$name')"
+            echo "  ok"
+          done
