@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,6 +60,7 @@ class _MapTabState extends ConsumerState<MapTab> {
     super.initState();
     _driversTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadDrivers());
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadDrivers());
+    ref.read(storeProvider).allStops().then((_) => _filterStops(), onError: (_) {});
   }
 
   @override
@@ -76,7 +78,16 @@ class _MapTabState extends ConsumerState<MapTab> {
 
   bool _showNames = false;
 
+  DateTime _lastFilter = DateTime(2000);
+
   void _onMove(MapView v) {
+    _moveCam = v;
+    // Filtra as paradas aqui mesmo, no celular, enquanto o mapa mexe (no máximo a cada 120 ms).
+    final now = DateTime.now();
+    if (now.difference(_lastFilter) > const Duration(milliseconds: 120)) {
+      _lastFilter = now;
+      _filterStops();
+    }
     final zoomed = v.zoom >= _stopsMinZoom;
     final names = v.zoom >= _namesMinZoom;
     if (zoomed != _zoomedIn || names != _showNames) {
@@ -94,7 +105,37 @@ class _MapTabState extends ConsumerState<MapTab> {
     _cameraDebounce = Timer(const Duration(milliseconds: 200), _loadStops);
   }
 
+  MapView? _moveCam;
+
+  /// Paradas na tela, a partir da lista completa que já está no celular.
+  void _filterStops() {
+    final cam = _moveCam ?? _camera;
+    final all = ref.read(storeProvider).allStopsNow;
+    if (!mounted || cam == null || all.isEmpty) return;
+    if (cam.zoom < _stopsMinZoom) {
+      if (_visibleStops.isNotEmpty) setState(() => _visibleStops = const []);
+      return;
+    }
+    final size = MediaQuery.sizeOf(context);
+    final k = math.cos(cam.center.latitude * math.pi / 180);
+    final metersPerPx = 156543.03392 * k / math.pow(2, cam.zoom);
+    final radius = 0.6 * math.sqrt(size.width * size.width + size.height * size.height) * metersPerPx;
+    final near = <(double, Stop)>[];
+    for (final st in all) {
+      final dy = (st.point.latitude - cam.center.latitude) * 110540;
+      final dx = (st.point.longitude - cam.center.longitude) * 111320 * k;
+      final d = math.sqrt(dx * dx + dy * dy);
+      if (d <= radius) near.add((d, st));
+    }
+    near.sort((a, b) => a.$1.compareTo(b.$1));
+    setState(() => _visibleStops = [for (final n in near.take(250)) n.$2]);
+  }
+
   Future<void> _loadStops() async {
+    if (ref.read(storeProvider).allStopsNow.isNotEmpty) {
+      _filterStops();
+      return;
+    }
     final cam = _camera;
     if (cam == null || cam.bounds == null || !mounted) return;
     if (cam.zoom < _stopsMinZoom) {

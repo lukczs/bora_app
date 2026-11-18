@@ -26,6 +26,18 @@ class _DriverRideScreenState extends ConsumerState<DriverRideScreen> {
   bool _loading = false;
   bool _starting = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // Carrega todas as paradas do caminho para aparecerem no mapinha.
+    final ride = ref.read(storeProvider).myRide(widget.rideId);
+    if (ride != null) {
+      ref.read(storeProvider).ensureStops(ride.path).then((_) {
+        if (mounted) setState(() {});
+      }, onError: (_) {});
+    }
+  }
+
   /// Inicia a corrida e abre a navegação.
   Future<void> _startRide(Ride ride) async {
     setState(() => _starting = true);

@@ -171,6 +171,24 @@ class BoraStore extends ChangeNotifier {
   // ------------------------------------------------------------------
   // Mapa: paradas visíveis, carros por perto, acompanhamento
   // ------------------------------------------------------------------
+  /// Todas as paradas de ônibus (carregadas uma vez). O mapa filtra no
+  /// próprio celular enquanto mexe, sem esperar o servidor.
+  List<Stop> allStopsNow = const [];
+  Future<List<Stop>>? _allStopsLoading;
+
+  Future<List<Stop>> allStops() => _allStopsLoading ??= () async {
+        try {
+          final data = await _client.rpc('all_stops') as List;
+          final stops = [for (final m in data) Stop.fromMap(Map<String, dynamic>.from(m as Map))];
+          _cacheStops(stops);
+          allStopsNow = stops;
+          return stops;
+        } catch (e) {
+          _allStopsLoading = null; // tenta de novo na próxima
+          rethrow;
+        }
+      }();
+
   Future<List<Stop>> stopsInView(GeoBounds b) async {
     final data = await _client.rpc('stops_in_view', params: {
       'p_south': b.south,

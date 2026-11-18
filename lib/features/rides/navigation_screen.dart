@@ -59,6 +59,7 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
   bool _rerouting = false;
   bool _busy = false;
   bool _gpsDenied = false;
+  bool _closing = false; // encerrando/saindo: nada mais de GPS, timers ou voltas de tela
   String? _error;
   DateTime _lastReroute = DateTime(2000);
   double _panel = 260;
@@ -76,6 +77,21 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
       ..setLanguage('pt-BR')
       ..setSpeechRate(.5);
     _start();
+  }
+
+  void _stopEverything() {
+    _closing = true;
+    _gps?.cancel();
+    _poll?.cancel();
+    _presence?.cancel();
+    _tts.stop();
+  }
+
+  /// Sai da navegação uma vez só (a corrida continua se não foi encerrada).
+  void _leave() {
+    if (_closing && !mounted) return;
+    _stopEverything();
+    if (mounted && context.canPop()) context.pop();
   }
 
   @override
@@ -101,6 +117,10 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
       }
       if (!mounted) return;
       setState(() => _plan = plan);
+      // Todas as paradas do caminho (não só as com passageiro) para desenhar no mapa
+      store.ensureStops(plan.ride.path).then((_) {
+        if (mounted) setState(() {});
+      }, onError: (_) {});
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
       return;
@@ -191,11 +211,12 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
   }
 
   Future<void> _refreshPlan({bool force = false}) async {
+    if (_closing) return;
     try {
       final plan = await ref.read(storeProvider).driverNavigation(widget.rideId);
-      if (!mounted) return;
+      if (!mounted || _closing) return;
       if (plan.ride.status == RideStatus.completed || plan.ride.status == RideStatus.cancelled) {
-        context.pop();
+        _leave();
         return;
       }
       final old = _plan;
@@ -224,6 +245,7 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
   // GPS
   // ------------------------------------------------------------------
   void _onFix(Position p) {
+    if (_closing) return;
     final here = LatLng(p.latitude, p.longitude);
     final moving = p.speed > 2;
     if (moving && p.heading >= 0) _heading = p.heading;
@@ -385,14 +407,30 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     );
     if (ok != true) return;
     setState(() => _busy = true);
+    // Para GPS e consultas antes: senão uma consulta atrasada vê a corrida
+    // encerrada e fecha a tela de novo (era o "sai e volta sozinho").
+    _stopEverything();
     try {
       await ref.read(storeProvider).finishRide(widget.rideId);
-      _tts.stop();
       if (!mounted) return;
       showBoraError(context, 'Corrida encerrada. Obrigado por levar a galera!');
-      context.pop();
+      if (context.canPop()) context.pop();
     } catch (e) {
-      if (mounted) showBoraError(context, friendlyError(e));
+      // não encerrou: volta a acompanhar
+      _closing = false;
+      if (mounted) {
+        showBoraError(context, friendlyError(e));
+        _poll = Timer.periodic(const Duration(seconds: 10), (_) => _refreshPlan());
+        _presence = Timer.periodic(const Duration(seconds: 5), (_) {
+          final p = _raw;
+          if (p != null) ref.read(storeProvider).reportLocation(p, _heading);
+        });
+        if (!_gpsDenied) {
+          _gps = Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(accuracy: LocationAccuracy.bestForNavigation, distanceFilter: 3),
+          ).listen(_onFix, onError: (_) {});
+        }
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -425,7 +463,12 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     final (step, meters, stepIndex) = _nextManeuver();
     final route = _route?.points ?? plan.route;
     final ahead = _idx < route.length ? route.sublist(_idx) : route;
+    final store = ref.read(storeProvider);
+    final pending = {for (final s in plan.stops) s.stopId};
     final pins = <MapPin>[
+      // todas as paradas do caminho (as com passageiro vêm destacadas abaixo)
+      for (final id in plan.ride.path)
+        if (!pending.contains(id) && !id.startsWith('r_')) stopPin('route-$id', store.stop(id).point),
       for (final s in plan.stops)
         highlightPin('nav-${s.stopId}', s.point, _stopLabel(s)),
       destinationPin(plan.destination),
@@ -460,7 +503,7 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
               meters: meters,
               rerouting: _rerouting,
               note: _gpsDenied ? 'Sem permissão de localização: a rota não acompanha o carro.' : _error,
-              onClose: () => context.pop(),
+              onClose: _leave,
             ),
           ),
 

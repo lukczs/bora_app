@@ -138,6 +138,13 @@ def ors_nav(points):
     return f
 
 
+def meters(a, b):
+    """Distância aproximada em metros entre (lat, lng)."""
+    import math
+    k = math.cos(math.radians(a[0]))
+    return math.hypot((a[0] - b[0]) * 110540, (a[1] - b[1]) * 111320 * k)
+
+
 NOW = dt.datetime.now(dt.timezone.utc)
 ASA_SUL_107 = (-15.8080, -47.8940)
 CANDANGOLANDIA = (-15.8510, -47.9505)
@@ -306,8 +313,24 @@ def main():
         if first:
             print(f"   primeira instrução: {first}")
 
-    # passageiro novo no caminho, com a corrida andando
-    offer_live = step("Busca acha corrida já andando (parada à frente)", lambda: find(p2, ride_a, frm=(-15.8330, -47.9260), to=(-15.8495, -47.9480)))
+    # ---- carro andando: vai até 40% da rota
+    coords = route["coordinates"]
+    mid = coords[int(len(coords) * 0.4)]
+    ride_row = [r for r in drv.rpc("my_rides") if r["id"] == ride_a][0]
+    total = ride_row["distance_m"]
+    step("Carro anda até 40% da rota (update_my_location)", lambda: drv.rpc("update_my_location", {"p_lat": mid[1], "p_lng": mid[0], "p_heading": 200}))
+    navm = step("Navegação com o carro no meio do caminho", lambda: drv.rpc("driver_navigation", {"p_ride": ride_a}))
+    if navm:
+        step("Progresso do carro bate com a posição (25%–55% da rota)", lambda: require(0.25 * total < navm["progress_m"] < 0.55 * total, f"progresso {navm['progress_m']} de {total} m"))
+        step("Horário da parada da passageira foi atualizado ao vivo", lambda: require(all(s_["eta"] for s_ in navm["stops"]), "sem horário"))
+
+    path = ride_row["path"]
+    pos = {s_["id"]: (s_["lat"], s_["lng"]) for s_ in p2.rpc("stops_by_ids", {"p_ids": path})}
+    behind, ahead, last = path[1], path[int(len(path) * 0.8)], path[-1]
+    step("Parada que o carro já passou é recusada", lambda: p2.rpc("book_seat", {"p_ride": ride_a, "p_pickup": behind, "p_dropoff": last}), expect_error="pickup_already_passed")
+
+    # passageiro novo no caminho, com a corrida andando (em cima de uma parada à frente)
+    offer_live = step("Busca acha corrida já andando (parada à frente)", lambda: find(p2, ride_a, frm=pos[ahead], to=pos[last]))
     booking_p2 = None
     if offer_live:
         booking_p2 = step("Reservar com a corrida andando", lambda: p2.rpc("book_seat", {"p_ride": ride_a, "p_pickup": offer_live["pickup_stop_id"], "p_dropoff": offer_live["dropoff_stop_id"]}))
@@ -315,6 +338,17 @@ def main():
     if nav1 and nav2:
         step("Versão da navegação mudou (app recalcula a rota)", lambda: require(nav2["version"] != nav1["version"], "versão igual"))
         step("Passageiro novo entrou na lista de paradas", lambda: require(any(a["booking_id"] == booking_p2 for s in nav2["stops"] for a in s["actions"]), "não entrou"))
+
+        def rerouted():
+            pts = [(mid[1], mid[0])] + [(s_["lat"], s_["lng"]) for s_ in nav2["stops"]] + [(nav2["destination"]["lat"], nav2["destination"]["lng"])]
+            geom = ors_nav(pts)["geometry"]["coordinates"]
+            new_stop = [s_ for s_ in nav2["stops"] if any(a["booking_id"] == booking_p2 and a["kind"] == "pickup" for a in s_["actions"])][0]
+            d = min(meters((c[1], c[0]), (new_stop["lat"], new_stop["lng"])) for c in geom)
+            require(d < 80, f"a rota nova passa a {d:.0f} m da parada do passageiro novo")
+            return d
+        d = step("Rota recalculada passa pela parada do passageiro novo (ORS)", rerouted)
+        if d is not None:
+            print(f"   rota nova passa a {d:.0f} m da parada nova")
 
     step("EMBARCOU (board_passenger)", lambda: drv.rpc("board_passenger", {"p_booking": booking_p1}))
     step("Passageira já embarcada não cancela", lambda: p1.rpc("cancel_booking", {"p_booking": booking_p1}), expect_error="cannot_cancel")
