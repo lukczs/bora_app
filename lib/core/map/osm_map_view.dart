@@ -10,7 +10,7 @@ import '../theme/app_colors.dart';
 import '../theme/tokens.dart';
 import 'map_types.dart';
 
-/// Mapa reserva (sem chave): base escura da CARTO sobre dados do OpenStreetMap.
+/// Mapa reserva (sem chave): OpenStreetMap padrão, um pouco menos saturado.
 class OsmMapView extends StatefulWidget {
   const OsmMapView({
     super.key,
@@ -116,7 +116,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
             : null,
         minZoom: 9,
         maxZoom: 19,
-        backgroundColor: AppColors.night,
+        backgroundColor: const Color(0xFFE8E4DC),
         onPositionChanged: _onPos,
         onMapReady: () => _onPos(_map.camera, false),
         onTap: widget.onTap == null ? null : (_, p) => widget.onTap!(p),
@@ -126,11 +126,11 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
       ),
       children: [
         TileLayer(
-          urlTemplate: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-          subdomains: const ['a', 'b', 'c', 'd'],
-          retinaMode: RetinaMode.isHighDensity(context),
+          // Mapa padrão do OpenStreetMap: sem chave e com nomes de rua bem legíveis.
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'br.com.bora',
           maxNativeZoom: 19,
+          tileBuilder: _softTiles,
         ),
         PolylineLayer(polylines: [
           for (final l in widget.lines) ...[
@@ -140,7 +140,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
         ]),
         MarkerLayer(markers: [for (final p in widget.pins) _marker(p)]),
         const SimpleAttributionWidget(
-          source: Text('© OpenStreetMap · © CARTO', style: TextStyle(fontSize: 10)),
+          source: Text('© OpenStreetMap', style: TextStyle(fontSize: 10)),
           backgroundColor: AppColors.scrim,
           alignment: Alignment.bottomLeft,
         ),
@@ -276,3 +276,15 @@ class _Pointer extends CustomPainter {
   @override
   bool shouldRepaint(_Pointer old) => old.color != color;
 }
+
+/// Tira um pouco da saturação do OSM para as cores do Bora (verde da rota,
+/// carros e paradas) se destacarem, mantendo os nomes nítidos.
+Widget _softTiles(BuildContext context, Widget tile, TileImage image) => ColorFiltered(
+      colorFilter: const ColorFilter.matrix(<double>[
+        0.75, 0.2, 0.05, 0, 0, //
+        0.1, 0.85, 0.05, 0, 0, //
+        0.1, 0.2, 0.7, 0, 0, //
+        0, 0, 0, 1, 0,
+      ]),
+      child: tile,
+    );
