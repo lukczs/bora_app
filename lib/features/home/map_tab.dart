@@ -552,8 +552,14 @@ class _IdleSheet extends StatelessWidget {
                 Expanded(
                   child: _QuickAction(
                     icon: activeRide != null ? Icons.navigation_outlined : Icons.add_road,
-                    label: activeRide != null ? 'Minha viagem' : 'Oferecer carona',
-                    onTap: activeRide != null ? () => context.push('/my-ride/${activeRide!.id}') : onOffer,
+                    label: activeRide?.status == RideStatus.inProgress
+                        ? 'Navegação'
+                        : (activeRide != null ? 'Minha viagem' : 'Oferecer carona'),
+                    onTap: activeRide == null
+                        ? onOffer
+                        : () => context.push(activeRide!.status == RideStatus.inProgress
+                            ? '/navigate/${activeRide!.id}'
+                            : '/my-ride/${activeRide!.id}'),
                   ),
                 ),
               ],

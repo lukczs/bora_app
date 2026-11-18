@@ -24,6 +24,21 @@ class DriverRideScreen extends ConsumerStatefulWidget {
 
 class _DriverRideScreenState extends ConsumerState<DriverRideScreen> {
   bool _loading = false;
+  bool _starting = false;
+
+  /// Inicia a corrida e abre a navegação.
+  Future<void> _startRide(Ride ride) async {
+    setState(() => _starting = true);
+    try {
+      if (ride.status == RideStatus.open) await ref.read(storeProvider).startRide(ride.id);
+      if (mounted) await context.push('/navigate/${ride.id}');
+      if (mounted) await ref.read(storeProvider).refreshTrips();
+    } catch (e) {
+      if (mounted) showBoraError(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
 
   Future<void> _cancel(int passengers) async {
     final confirmed = await showDialog<bool>(
@@ -62,6 +77,9 @@ class _DriverRideScreenState extends ConsumerState<DriverRideScreen> {
     }
     final points = store.graph.pointsOf(ride.path);
     final open = ride.status == RideStatus.open;
+    final running = ride.status == RideStatus.inProgress;
+    final startsAt = ride.departureAt.subtract(const Duration(minutes: 60));
+    final canStart = open && DateTime.now().isAfter(startsAt);
 
     return Scaffold(
       appBar: AppBar(
@@ -96,11 +114,35 @@ class _DriverRideScreenState extends ConsumerState<DriverRideScreen> {
               ),
             ),
             const SizedBox(height: 18),
+            if (running || canStart) ...[
+              BoraButton(
+                label: running ? 'Abrir navegação' : 'Iniciar corrida',
+                icon: Icons.navigation,
+                loading: _starting,
+                onPressed: () => _startRide(ride),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                running
+                    ? 'Corrida em andamento. A rota passa por quem ainda falta pegar ou deixar.'
+                    : 'O app vira navegação com a rota até cada passageiro.',
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+              ),
+              const SizedBox(height: 18),
+            ] else if (open) ...[
+              Text('Dá para iniciar a corrida a partir de ${formatTime(startsAt)} (1 hora antes da saída).',
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
+              const SizedBox(height: 18),
+            ],
             Row(
               children: [
                 Expanded(child: Text(formatWhen(ride.departureAt), style: Theme.of(context).textTheme.titleLarge)),
                 if (ride.status == RideStatus.cancelled)
                   const Pill('Cancelada', icon: Icons.cancel, color: AppColors.danger)
+                else if (ride.status == RideStatus.completed)
+                  const Pill('Concluída', icon: Icons.check_circle, color: AppColors.textMuted)
+                else if (running)
+                  const Pill('Em andamento', icon: Icons.navigation, color: AppColors.warning)
                 else
                   Pill('${ride.seatsTotal - ride.seatsAvailable} de ${ride.seatsTotal} vagas', icon: Icons.event_seat),
               ],
@@ -169,6 +211,10 @@ class _PassengerCard extends StatelessWidget {
                 child: Text(p?.fullName ?? 'Passageiro',
                     style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w700)),
               ),
+              if (booking.status == BookingStatus.boarded)
+                const Padding(padding: EdgeInsets.only(right: 8), child: Pill('No carro', icon: Icons.airline_seat_recline_normal, color: AppColors.warning))
+              else if (booking.status == BookingStatus.completed)
+                const Padding(padding: EdgeInsets.only(right: 8), child: Pill('Desceu', icon: Icons.check, color: AppColors.textMuted)),
               Text(formatCents(booking.priceCents),
                   style: const TextStyle(color: AppColors.green, fontWeight: FontWeight.w800)),
             ],

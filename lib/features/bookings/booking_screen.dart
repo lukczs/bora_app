@@ -73,8 +73,19 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           children: [
             if (booking.status == BookingStatus.cancelled)
-              Pill(rideCancelled ? 'O motorista cancelou esta viagem' : 'Reserva cancelada',
-                  icon: Icons.cancel, color: AppColors.danger)
+              Pill(
+                  switch (booking.cancelledBy) {
+                    'no_show' => 'O motorista marcou que você não estava na parada',
+                    'driver' => 'O motorista tirou você desta viagem',
+                    _ when rideCancelled || booking.cancelledBy == 'ride' => 'O motorista cancelou esta viagem',
+                    _ => 'Reserva cancelada',
+                  },
+                  icon: Icons.cancel,
+                  color: AppColors.danger)
+            else if (booking.status == BookingStatus.boarded)
+              const Pill('Você está no carro. Boa viagem!', icon: Icons.airline_seat_recline_normal, color: AppColors.warning)
+            else if (booking.status == BookingStatus.completed)
+              const Pill('Viagem concluída', icon: Icons.check_circle, color: AppColors.textMuted)
             else ...[
               const Text('Mostre este código ao motorista na hora de embarcar'),
               const SizedBox(height: 12),

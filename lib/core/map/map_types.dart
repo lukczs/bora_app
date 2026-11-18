@@ -79,9 +79,19 @@ class BoraMapController {
     if (points.isEmpty) return;
     await _delegate?.fit(points);
   }
+
+  /// Modo navegação: centraliza em [p] (no meio da área livre, descontando o
+  /// padding) com o mapa girado para [heading] (graus a partir do norte).
+  Future<void> follow(LatLng p, {required double heading, double zoom = 17}) async =>
+      _delegate?.follow(p, heading: heading, zoom: zoom);
+
+  /// Volta o mapa para o norte em cima.
+  Future<void> resetBearing() async => _delegate?.resetBearing();
 }
 
 abstract class BoraMapDelegate {
   Future<void> moveTo(LatLng p, {double? zoom});
   Future<void> fit(List<LatLng> points);
+  Future<void> follow(LatLng p, {required double heading, double zoom = 17});
+  Future<void> resetBearing();
 }

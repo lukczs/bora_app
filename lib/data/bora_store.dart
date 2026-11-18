@@ -611,6 +611,39 @@ class BoraStore extends ChangeNotifier {
   }
 
   // ------------------------------------------------------------------
+  // Corrida (motorista)
+  // ------------------------------------------------------------------
+  Future<void> startRide(String rideId) async {
+    await _client.rpc('start_ride', params: {'p_ride': rideId});
+    await refreshTrips();
+  }
+
+  Future<NavPlan> driverNavigation(String rideId) async {
+    final data = await _client.rpc('driver_navigation', params: {'p_ride': rideId});
+    return NavPlan.fromMap(Map<String, dynamic>.from(data as Map));
+  }
+
+  Future<void> boardPassenger(String bookingId) => _client.rpc('board_passenger', params: {'p_booking': bookingId});
+  Future<void> passengerNoShow(String bookingId) => _client.rpc('passenger_no_show', params: {'p_booking': bookingId});
+  Future<void> dropPassenger(String bookingId) => _client.rpc('drop_passenger', params: {'p_booking': bookingId});
+
+  Future<void> finishRide(String rideId) async {
+    await _client.rpc('finish_ride', params: {'p_ride': rideId});
+    await refreshTrips();
+  }
+
+  /// Posição do carro durante a navegação (mais frequente que o normal).
+  Future<void> reportLocation(LatLng p, double? heading) async {
+    position = p;
+    positionIsReal = true;
+    try {
+      await _client.rpc('update_my_location', params: {'p_lat': p.latitude, 'p_lng': p.longitude, 'p_heading': heading});
+    } catch (_) {
+      // sem rede agora; manda de novo no próximo ponto
+    }
+  }
+
+  // ------------------------------------------------------------------
   // Busca e reservas (passageiro)
   // ------------------------------------------------------------------
   Future<List<RideOffer>> searchRides({

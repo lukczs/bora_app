@@ -113,6 +113,20 @@ class _GoogleMapViewState extends State<GoogleMapView> implements BoraMapDelegat
     await c.animateCamera(gm.CameraUpdate.newLatLngBounds(bounds, 40));
   }
 
+  @override
+  Future<void> follow(LatLng p, {required double heading, double zoom = 17}) async {
+    await _ctrl?.animateCamera(gm.CameraUpdate.newCameraPosition(
+      gm.CameraPosition(target: _g(p), zoom: zoom, bearing: heading, tilt: 45),
+    ));
+  }
+
+  @override
+  Future<void> resetBearing() async {
+    final pos = _last;
+    if (pos == null) return;
+    await _ctrl?.animateCamera(gm.CameraUpdate.newCameraPosition(gm.CameraPosition(target: pos.target, zoom: pos.zoom)));
+  }
+
   Future<void> _emitIdle() async {
     final c = _ctrl, pos = _last;
     if (c == null || pos == null || widget.onIdle == null) return;

@@ -201,6 +201,11 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
     final me = store.me!;
     final vehicles = store.myVehicles;
     final communities = store.myCommunities.where((c) => c.myStatus == MemberStatus.active).toList();
+    // Cadastrou o carro agora (voltou da tela de carro)? Já deixa ele escolhido.
+    if (!_editing && vehicles.isNotEmpty && !vehicles.any((v) => v.id == _vehicleId)) {
+      _vehicleId = vehicles.first.id;
+      _seats = vehicles.first.seats;
+    }
     final maxSeats = vehicles.where((v) => v.id == _vehicleId).firstOrNull?.seats ?? 6;
     if (_seats > maxSeats) _seats = maxSeats;
 

@@ -100,6 +100,18 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
     _map.fitCamera(CameraFit.bounds(bounds: LatLngBounds.fromPoints(points), padding: _fitPadding, maxZoom: 17));
   }
 
+  @override
+  Future<void> follow(LatLng p, {required double heading, double zoom = 17}) async {
+    // No flutter_map a rotação é no sentido horário; para a frente do carro
+    // ficar para cima, gira ao contrário do rumo.
+    _map.rotate(-heading);
+    final pad = widget.padding;
+    _map.move(p, zoom, offset: Offset(0, (pad.top - pad.bottom) / 2));
+  }
+
+  @override
+  Future<void> resetBearing() async => _map.rotate(0);
+
   void _onPos(MapCamera cam, bool gesture) {
     if (!_moving) {
       _moving = true;
@@ -132,7 +144,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
             : null,
         minZoom: 9,
         maxZoom: 19,
-        backgroundColor: _baseFailed ? const Color(0xFFE8E4DC) : const Color(0xFF141D33),
+        backgroundColor: _baseFailed ? const Color(0xFFE8E4DC) : const Color(0xFF0F172A),
         onPositionChanged: _onPos,
         onMapReady: () => _onPos(_map.camera, false),
         onTap: widget.onTap == null ? null : (_, p) => widget.onTap!(p),
@@ -182,6 +194,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
           width: StopPin.size.width,
           height: StopPin.size.height,
           alignment: Alignment.topCenter,
+          rotate: true,
           child: tap(const StopPinIcon()),
         );
       case PinKind.stopNamed:
@@ -191,6 +204,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
           width: 200,
           height: 66,
           alignment: Alignment.topCenter,
+          rotate: true,
           child: tap(Column(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -220,6 +234,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
           width: 200,
           height: 42,
           alignment: Alignment.topCenter,
+          rotate: true,
           child: tap(Column(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [

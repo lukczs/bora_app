@@ -55,6 +55,12 @@ jobs:
           M=android/app/src/main/AndroidManifest.xml
           sed -i '0,/<application/s##<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>\n    <application#' $M
           sed -i 's#android:label="[^"]*"#android:label="Bora"#' $M
+          # Voz da navegação (Android 11+ precisa declarar que usa o leitor de texto)
+          if grep -q '<queries>' $M; then
+            sed -i 's#<queries>#<queries>\n        <intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>#' $M
+          else
+            sed -i 's#</manifest>#    <queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent></queries>\n</manifest>#' $M
+          fi
           if [ -n "$MAPS_API_KEY" ]; then
             sed -i "s#</application>#    <meta-data android:name=\"com.google.android.geo.API_KEY\" android:value=\"$MAPS_API_KEY\"/>\n    </application>#" $M
             echo "GOOGLE_MAPS=true" >> "$GITHUB_ENV"

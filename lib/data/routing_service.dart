@@ -70,6 +70,64 @@ class RoutingService {
     );
   }
 
+  /// Rota para a navegação: passa pelos pontos em ordem e traz as
+  /// instruções curva a curva em português.
+  Future<NavRoute> navigate(List<LatLng> points) async {
+    _requireKey();
+    // Pontos repetidos (parada em cima do destino, por exemplo) atrapalham a rota.
+    final pts = <LatLng>[];
+    for (final p in points) {
+      if (pts.isEmpty || const Distance().as(LengthUnit.Meter, pts.last, p) > 25) pts.add(p);
+    }
+    if (pts.length < 2) pts.add(points.last);
+    final r = await _http
+        .post(
+          Uri.parse('$_base/v2/directions/driving-car/geojson'),
+          headers: _headers,
+          body: jsonEncode({
+            'coordinates': [
+              for (final p in pts.take(50)) [p.longitude, p.latitude],
+            ],
+            'instructions': true,
+            'language': 'pt',
+            'units': 'm',
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    _check(r);
+    final feature = (jsonDecode(r.body)['features'] as List).first as Map<String, dynamic>;
+    final coords = (feature['geometry']['coordinates'] as List)
+        .map((c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()))
+        .toList();
+    final props = feature['properties'] as Map<String, dynamic>;
+    final summary = props['summary'] as Map<String, dynamic>? ?? const {};
+    final steps = <NavStep>[];
+    final legEnds = <int>[];
+    for (final seg in (props['segments'] as List? ?? const [])) {
+      final segSteps = (seg as Map)['steps'] as List? ?? const [];
+      for (final st in segSteps) {
+        final wp = (st as Map)['way_points'] as List;
+        steps.add(NavStep(
+          type: (st['type'] as num?)?.toInt() ?? 6,
+          instruction: st['instruction'] as String? ?? '',
+          street: (st['name'] as String?)?.replaceAll('-', '').trim() ?? '',
+          distanceM: (st['distance'] as num?)?.toDouble() ?? 0,
+          durationS: (st['duration'] as num?)?.toDouble() ?? 0,
+          from: (wp[0] as num).toInt(),
+          to: (wp[1] as num).toInt(),
+        ));
+      }
+      if (segSteps.isNotEmpty) legEnds.add(steps.last.to);
+    }
+    return NavRoute(
+      points: coords,
+      steps: steps,
+      legEnds: legEnds,
+      distanceM: (summary['distance'] as num?)?.round() ?? 0,
+      duration: Duration(seconds: (summary['duration'] as num?)?.round() ?? 0),
+    );
+  }
+
   /// Sugestões enquanto a pessoa digita.
   Future<List<Place>> autocomplete(String text, {LatLng? near}) async {
     _requireKey();
@@ -141,4 +199,39 @@ class RoutePlan {
   final int distanceM;
   final Duration duration;
   final Map<String, dynamic> geoJson;
+}
+
+/// Rota da navegação: linha, instruções e onde termina cada trecho (parada).
+class NavRoute {
+  const NavRoute({required this.points, required this.steps, required this.legEnds, required this.distanceM, required this.duration});
+  final List<LatLng> points;
+  final List<NavStep> steps;
+
+  /// Índice (em [points]) de onde termina cada trecho entre paradas.
+  final List<int> legEnds;
+  final int distanceM;
+  final Duration duration;
+}
+
+/// Uma manobra. [type] segue a OpenRouteService:
+/// 0 esquerda, 1 direita, 2 esquerda forte, 3 direita forte, 4 leve à esquerda,
+/// 5 leve à direita, 6 em frente, 7 entrar na rotatória, 8 sair da rotatória,
+/// 9 retorno, 10 chegada, 11 partida, 12 mantenha à esquerda, 13 mantenha à direita.
+class NavStep {
+  const NavStep({
+    required this.type,
+    required this.instruction,
+    required this.street,
+    required this.distanceM,
+    required this.durationS,
+    required this.from,
+    required this.to,
+  });
+  final int type;
+  final String instruction;
+  final String street;
+  final double distanceM;
+  final double durationS;
+  final int from;
+  final int to;
 }

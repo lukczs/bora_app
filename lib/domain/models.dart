@@ -339,9 +339,13 @@ class Booking {
     this.pickupByCar = false,
     this.pickupEta,
     this.pickupName,
+    this.cancelledBy,
   });
   final String id;
   final String rideId;
+
+  /// 'passenger', 'driver', 'ride' (viagem cancelada) ou 'no_show' (não apareceu).
+  final String? cancelledBy;
 
   /// true = o passageiro vai a pé até o carro na saída; false = espera numa parada.
   final bool pickupByCar;
@@ -385,6 +389,7 @@ class Booking {
         pickupByCar: m['pickup_mode'] == 'car',
         pickupEta: m['pickup_eta'] == null ? null : DateTime.parse(m['pickup_eta'] as String).toLocal(),
         pickupName: m['pickup_name'] as String?,
+        cancelledBy: m['cancelled_by'] as String?,
       );
 }
 
@@ -582,4 +587,87 @@ class BoraEvent {
         interested: (m['interested'] as num?)?.toInt() ?? 0,
         myInterest: {for (final l in (m['my_interest'] as List? ?? const [])) l as String},
       );
+}
+
+// ---------------------------------------------------------------------------
+// Corrida: o que o motorista ainda tem que fazer no caminho
+// ---------------------------------------------------------------------------
+
+/// Pegar ou deixar um passageiro numa parada.
+class NavAction {
+  const NavAction({required this.bookingId, required this.pickup, required this.status, required this.byCar, this.passenger});
+  final String bookingId;
+
+  /// true = pegar; false = deixar.
+  final bool pickup;
+  final BookingStatus status;
+  final bool byCar;
+  final Person? passenger;
+
+  String get name => passenger?.firstName ?? 'Passageiro';
+
+  factory NavAction.fromMap(Map<String, dynamic> m) => NavAction(
+        bookingId: m['booking_id'] as String,
+        pickup: m['kind'] == 'pickup',
+        status: _enumBySnake(BookingStatus.values, m['status'], BookingStatus.reserved),
+        byCar: m['pickup_mode'] == 'car',
+        passenger: m['passenger'] == null ? null : Person.fromMap(Map<String, dynamic>.from(m['passenger'] as Map)),
+      );
+}
+
+/// Parada com alguém para pegar ou deixar.
+class NavStop {
+  const NavStop({required this.stopId, required this.name, required this.point, required this.distanceM, this.eta, required this.actions});
+  final String stopId;
+  final String name;
+  final LatLng point;
+
+  /// Distância desde o começo da rota publicada.
+  final int distanceM;
+  final DateTime? eta;
+  final List<NavAction> actions;
+
+  List<NavAction> get pickups => actions.where((a) => a.pickup).toList();
+  List<NavAction> get dropoffs => actions.where((a) => !a.pickup).toList();
+
+  factory NavStop.fromMap(Map<String, dynamic> m) => NavStop(
+        stopId: m['stop_id'] as String,
+        name: m['name'] as String,
+        point: LatLng((m['lat'] as num).toDouble(), (m['lng'] as num).toDouble()),
+        distanceM: (m['distance_m'] as num?)?.toInt() ?? 0,
+        eta: m['eta'] == null ? null : DateTime.parse(m['eta'] as String).toLocal(),
+        actions: [for (final a in m['actions'] as List) NavAction.fromMap(Map<String, dynamic>.from(a as Map))],
+      );
+}
+
+/// Tudo que a navegação precisa: paradas pendentes em ordem, destino e
+/// uma versão que muda quando entra, sai ou embarca alguém.
+class NavPlan {
+  const NavPlan({
+    required this.ride,
+    required this.route,
+    required this.destination,
+    required this.destinationLabel,
+    required this.stops,
+    required this.version,
+  });
+  final Ride ride;
+  final List<LatLng> route;
+  final LatLng destination;
+  final String destinationLabel;
+  final List<NavStop> stops;
+  final String version;
+
+  factory NavPlan.fromMap(Map<String, dynamic> m) {
+    final coords = ((m['route'] as Map?)?['coordinates'] as List?) ?? const [];
+    final d = Map<String, dynamic>.from(m['destination'] as Map);
+    return NavPlan(
+      ride: Ride.fromMap(Map<String, dynamic>.from(m['ride'] as Map)),
+      route: [for (final c in coords) LatLng(((c as List)[1] as num).toDouble(), (c[0] as num).toDouble())],
+      destination: LatLng((d['lat'] as num).toDouble(), (d['lng'] as num).toDouble()),
+      destinationLabel: d['label'] as String? ?? 'Destino',
+      stops: [for (final s in m['stops'] as List) NavStop.fromMap(Map<String, dynamic>.from(s as Map))],
+      version: m['version'] as String? ?? '',
+    );
+  }
 }

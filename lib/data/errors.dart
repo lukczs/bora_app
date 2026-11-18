@@ -7,6 +7,11 @@ const _messages = <String, String>{
   'route_without_stops': 'Essa rota não passa perto de nenhuma parada de ônibus. Tente outro caminho.',
   'invalid_route': 'Não foi possível ler a rota. Calcule de novo.',
   'removed_by_driver': 'O motorista removeu você desta viagem.',
+  'too_early_to_start': 'Dá para iniciar a corrida só a partir de 1 hora antes da saída.',
+  'ride_already_in_progress': 'Você já tem outra corrida em andamento. Encerre ela primeiro.',
+  'booking_not_active': 'Essa reserva já foi resolvida (embarcou, desceu ou cancelou).',
+  'pickup_already_passed': 'O carro já passou dessa parada. Escolha uma parada mais à frente.',
+  'cannot_remove_passenger': 'Só dá para remover quem ainda não embarcou.',
 
   'cpf_already_registered': 'Este CPF já está cadastrado em outra conta.',
   'invalid_cpf': 'CPF inválido.',

@@ -3,7 +3,7 @@
 /// paradas do Google escondidos (o Bora desenha as próprias paradas).
 const boraMapStyle = '''
 [
-  {"elementType": "geometry", "stylers": [{"color": "#141d33"}]},
+  {"elementType": "geometry", "stylers": [{"color": "#0f172a"}]},
   {"elementType": "labels.text.fill", "stylers": [{"color": "#cbd5e1"}]},
   {"elementType": "labels.text.stroke", "stylers": [{"color": "#0f172a"}, {"weight": 3}]},
   {"elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
@@ -13,16 +13,16 @@ const boraMapStyle = '''
   {"featureType": "administrative.neighborhood", "elementType": "labels.text.fill", "stylers": [{"color": "#94a3b8"}]},
   {"featureType": "administrative.land_parcel", "stylers": [{"visibility": "off"}]},
 
-  {"featureType": "landscape.man_made", "elementType": "geometry", "stylers": [{"color": "#18223b"}]},
-  {"featureType": "landscape.natural", "elementType": "geometry", "stylers": [{"color": "#131c30"}]},
+  {"featureType": "landscape.man_made", "elementType": "geometry", "stylers": [{"color": "#141d33"}]},
+  {"featureType": "landscape.natural", "elementType": "geometry", "stylers": [{"color": "#111a2f"}]},
 
   {"featureType": "poi", "elementType": "geometry", "stylers": [{"color": "#1b2540"}]},
   {"featureType": "poi", "elementType": "labels.text.fill", "stylers": [{"color": "#8a9bb5"}]},
   {"featureType": "poi.business", "stylers": [{"visibility": "off"}]},
   {"featureType": "poi.medical", "elementType": "labels", "stylers": [{"visibility": "on"}]},
   {"featureType": "poi.school", "elementType": "labels", "stylers": [{"visibility": "on"}]},
-  {"featureType": "poi.park", "elementType": "geometry", "stylers": [{"color": "#14302a"}]},
-  {"featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{"color": "#6ea58a"}]},
+  {"featureType": "poi.park", "elementType": "geometry", "stylers": [{"color": "#16303a"}]},
+  {"featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{"color": "#7f9bb0"}]},
 
   {"featureType": "road", "elementType": "geometry.fill", "stylers": [{"color": "#2a3858"}]},
   {"featureType": "road", "elementType": "geometry.stroke", "stylers": [{"color": "#0f172a"}]},
