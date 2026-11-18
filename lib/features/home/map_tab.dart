@@ -272,11 +272,13 @@ class _MapTabState extends ConsumerState<MapTab> {
       youPin(store.position),
       if (_origin != null && _stage != _Stage.idle && _origin!.label != 'Minha localização') originPin(_origin!.point),
       if (_destination != null && _stage != _Stage.idle) destinationPin(_destination!.point),
-      if (_selected?.pickup != null) highlightPin('pickup', _selected!.pickup!.point, 'Embarque · ${_selected!.pickup!.name}'),
+      if (_selected?.pickup != null)
+        highlightPin('pickup', _selected!.pickup!.point,
+            _selected!.pickupByCar ? 'Carro aqui · ${formatTime(_selected!.pickupEta ?? _selected!.ride.departureAt)}' : 'Embarque · ${_selected!.pickup!.name}'),
       if (_selected?.dropoff != null) highlightPin('dropoff', _selected!.dropoff!.point, 'Desembarque · ${_selected!.dropoff!.name}'),
       if (_stage == _Stage.tracking && _trackingBooking != null)
         highlightPin('my-pickup', store.stop(_trackingBooking!.pickupStopId).point,
-            'Seu embarque · ${store.stop(_trackingBooking!.pickupStopId).name}'),
+            _trackingBooking!.pickupByCar ? 'Carro aqui' : 'Seu embarque · ${store.stop(_trackingBooking!.pickupStopId).name}'),
       if (_stage == _Stage.tracking && _tracking?.driverPoint != null)
         carPin('tracked', _tracking!.driverPoint!, heading: _tracking!.heading, mine: true),
     ];
@@ -723,12 +725,10 @@ class _OfferTile extends StatelessWidget {
                   if (best) ...[const SizedBox(width: Space.xs), const Pill('Melhor opção')],
                 ]),
                 const SizedBox(height: 2),
+                const SizedBox(height: 2),
+                _ModeLine(offer: offer),
                 Text(
-                  [
-                    if (offer.pickupEta != null) 'Passa às ${formatTime(offer.pickupEta!)}',
-                    if (offer.pickupWalkM != null) '${offer.pickupWalkM} m a pé',
-                    '${r.seatsAvailable} ${r.seatsAvailable == 1 ? 'vaga' : 'vagas'}',
-                  ].join(' · '),
+                  '${r.seatsAvailable} ${r.seatsAvailable == 1 ? 'vaga' : 'vagas'}',
                   style: AppText.caption,
                 ),
                 if (offer.sharedCommunities.isNotEmpty) ...[
@@ -772,10 +772,12 @@ class _OfferSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: Space.md),
+          _PickupPlan(offer: offer),
+          const SizedBox(height: Space.md),
           RouteSummary(
-            from: offer.pickup?.name ?? 'Embarque',
+            from: offer.pickupByCar ? 'Carro na saída · ${offer.ride.originLabel ?? offer.pickup?.name ?? ''}' : (offer.pickup?.name ?? 'Embarque'),
             fromDetail: [
-              if (offer.pickupEta != null) 'Carro passa às ${formatTime(offer.pickupEta!)}',
+              if (offer.pickupEta != null) (offer.pickupByCar ? 'Sai às ' : 'Carro passa às ') + formatTime(offer.pickupEta!),
               if (offer.pickupWalkM != null) '${offer.pickupWalkM} m a pé de você',
             ].join(' · '),
             to: offer.dropoff?.name ?? 'Desembarque',
@@ -857,6 +859,23 @@ class _TrackingSheet extends StatelessWidget {
             style: AppText.body,
           ),
           const SizedBox(height: Space.md),
+          if (booking.beThereBy != null)
+            BoraCard(
+              highlight: true,
+              child: Row(children: [
+                Icon(booking.pickupByCar ? Icons.directions_walk : Icons.directions_bus_outlined, color: AppColors.green),
+                const SizedBox(width: Space.sm),
+                Expanded(
+                  child: Text(
+                    booking.pickupByCar
+                        ? 'Vá até o carro na saída. Esteja lá até ${formatTime(booking.beThereBy!)}.'
+                        : 'Esteja em $pickupName até ${formatTime(booking.beThereBy!)}. O motorista para e te pega.',
+                    style: AppText.bodyStrong,
+                  ),
+                ),
+              ]),
+            ),
+          const SizedBox(height: Space.sm),
           if (booking.boardingCode != null)
             BoraCard(
               child: Row(
@@ -939,4 +958,69 @@ class _Hint extends StatelessWidget {
         decoration: BoxDecoration(color: AppColors.scrim, borderRadius: BorderRadius.circular(999)),
         child: Text(text, style: AppText.caption.copyWith(color: AppColors.text)),
       );
+}
+
+
+/// Uma linha que resume como embarcar ("Vá até o carro" ou "Vá até a parada").
+class _ModeLine extends StatelessWidget {
+  const _ModeLine({required this.offer});
+  final RideOffer offer;
+
+  @override
+  Widget build(BuildContext context) {
+    final car = offer.pickupByCar;
+    final text = car
+        ? 'Vá até o carro · ${offer.pickupWalkM ?? 0} m · sai às ${formatTime(offer.pickupEta ?? offer.ride.departureAt)}'
+        : 'Parada ${offer.pickup?.name ?? ''} · esteja lá às ${offer.beThereBy == null ? '--' : formatTime(offer.beThereBy!)}';
+    return Row(children: [
+      Icon(car ? Icons.directions_walk : Icons.directions_bus_outlined, size: 15, color: AppColors.green),
+      const SizedBox(width: 4),
+      Flexible(child: Text(text, style: AppText.caption.copyWith(color: AppColors.text), maxLines: 1, overflow: TextOverflow.ellipsis)),
+    ]);
+  }
+}
+
+/// Plano de embarque em destaque na confirmação: o que fazer e até quando.
+class _PickupPlan extends StatelessWidget {
+  const _PickupPlan({required this.offer});
+  final RideOffer offer;
+
+  @override
+  Widget build(BuildContext context) {
+    final car = offer.pickupByCar;
+    final title = car ? 'Vá até o carro' : 'Vá até a parada';
+    final where = car ? (offer.ride.originLabel ?? offer.pickup?.name ?? 'Saída do motorista') : (offer.pickup?.name ?? 'Parada');
+    final steps = <(IconData, String)>[
+      (Icons.directions_walk, '${offer.pickupWalkM ?? 0} m a pé${offer.walkMin == null ? '' : ' (${offer.walkMin} min)'} até $where'),
+      if (offer.leaveBy != null) (Icons.schedule, 'Saia até ${formatTime(offer.leaveBy!)}'),
+      if (offer.beThereBy != null)
+        (Icons.flag_outlined, car ? 'Esteja no carro até ${formatTime(offer.beThereBy!)}' : 'Esteja na parada até ${formatTime(offer.beThereBy!)}'),
+      if (!car && offer.pickupEta != null) (Icons.directions_car_filled, 'O motorista passa e para às ${formatTime(offer.pickupEta!)}'),
+    ];
+    return BoraCard(
+      highlight: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(car ? Icons.directions_car_filled : Icons.directions_bus, color: AppColors.green),
+            const SizedBox(width: Space.xs),
+            Text(title, style: AppText.subtitle),
+            const Spacer(),
+            Pill(car ? 'Pertinho do carro' : 'Embarque no caminho', color: AppColors.mint),
+          ]),
+          const SizedBox(height: Space.sm),
+          for (final (icon, text) in steps)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(icon, size: 17, color: AppColors.textMuted),
+                const SizedBox(width: Space.xs),
+                Expanded(child: Text(text, style: AppText.body.copyWith(color: AppColors.text))),
+              ]),
+            ),
+        ],
+      ),
+    );
+  }
 }

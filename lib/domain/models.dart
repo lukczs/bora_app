@@ -336,9 +336,22 @@ class Booking {
     this.passenger,
     this.sharedCommunities = const [],
     this.ride,
+    this.pickupByCar = false,
+    this.pickupEta,
+    this.pickupName,
   });
   final String id;
   final String rideId;
+
+  /// true = o passageiro vai a pé até o carro na saída; false = espera numa parada.
+  final bool pickupByCar;
+
+  /// Horário combinado em que o carro passa no embarque.
+  final DateTime? pickupEta;
+  final String? pickupName;
+
+  /// Até quando estar no ponto (2 min antes do carro).
+  DateTime? get beThereBy => pickupEta?.subtract(const Duration(minutes: 2));
   final String pickupStopId;
   final String dropoffStopId;
   final int distanceM;
@@ -369,6 +382,9 @@ class Booking {
         passenger: m['passenger'] == null ? null : Person.fromMap(Map<String, dynamic>.from(m['passenger'] as Map)),
         sharedCommunities: [for (final c in (m['shared_communities'] as List? ?? const [])) c as String],
         ride: m['ride'] == null ? null : Ride.fromMap(Map<String, dynamic>.from(m['ride'] as Map)),
+        pickupByCar: m['pickup_mode'] == 'car',
+        pickupEta: m['pickup_eta'] == null ? null : DateTime.parse(m['pickup_eta'] as String).toLocal(),
+        pickupName: m['pickup_name'] as String?,
       );
 }
 
@@ -386,8 +402,18 @@ class RideOffer {
     this.dropoffWalkM,
     this.pickupEta,
     this.dropoffEta,
+    this.pickupByCar = false,
+    this.walkMin,
+    this.beThereBy,
+    this.leaveBy,
   });
   final Ride ride;
+
+  /// "Ir até o carro" (perto da saída) ou "ir até a parada" (mais longe).
+  final bool pickupByCar;
+  final int? walkMin;
+  final DateTime? beThereBy;
+  final DateTime? leaveBy;
   final String pickupStopId;
   final String dropoffStopId;
   final int distanceM;
@@ -428,6 +454,10 @@ class RideOffer {
         dropoffWalkM: (m['dropoff'] as Map?)?['walk_m'] as int?,
         pickupEta: _date(m['pickup_eta']),
         dropoffEta: _date(m['dropoff_eta']),
+        pickupByCar: m['pickup_mode'] == 'car',
+        walkMin: (m['walk_min'] as num?)?.toInt(),
+        beThereBy: _date(m['be_there_by']),
+        leaveBy: _date(m['leave_by']),
       );
 }
 

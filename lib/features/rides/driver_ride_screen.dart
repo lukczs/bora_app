@@ -175,7 +175,19 @@ class _PassengerCard extends StatelessWidget {
           ),
           if (p != null) Text(p.ratingLabel),
           const SizedBox(height: 10),
-          Text('Embarca em ${store.stop(booking.pickupStopId).name}', style: const TextStyle(color: AppColors.text)),
+          Row(children: [
+            Icon(booking.pickupByCar ? Icons.directions_walk : Icons.directions_bus_outlined, size: 18, color: AppColors.green),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                booking.pickupByCar
+                    ? 'Vem a pé até o carro na saída${booking.pickupEta == null ? '' : ' · ${formatTime(booking.pickupEta!)}'}'
+                    : 'Pegar em ${booking.pickupName ?? store.stop(booking.pickupStopId).name}'
+                        '${booking.pickupEta == null ? '' : ' às ${formatTime(booking.pickupEta!)}'}',
+                style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ]),
           Text('Desce em ${store.stop(booking.dropoffStopId).name}'),
           if (booking.sharedCommunities.isNotEmpty) ...[
             const SizedBox(height: 10),
