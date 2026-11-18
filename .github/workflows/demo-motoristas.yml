@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       acao:
-        description: 'publicar (sai daqui a pouco, carros andando), dia (caronas o dia todo + evento), evento ou remover'
+        description: 'publicar (sai daqui a pouco, carros andando), dia (caronas o dia todo + evento), simular (só faz os carros andarem, sem apagar nada), evento ou remover'
         type: choice
-        options: [publicar, dia, evento, remover]
+        options: [publicar, dia, simular, evento, remover]
         default: publicar
       saida_em_minutos:
         description: 'Daqui a quantos minutos o primeiro sai (os outros saem a cada 3 min)'
@@ -22,7 +22,7 @@ on:
         default: '07:00,09:00,11:00,13:00,15:00,17:00,19:00,21:00'
       simular_minutos:
         description: 'Por quantos minutos mover os carros no mapa (0 = não mover)'
-        default: '40'
+        default: '60'
 
 concurrency:
   group: demo-motoristas
@@ -42,6 +42,7 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q postgresql-client
 
       - name: Gerar e aplicar
+        if: inputs.acao != 'simular'
         run: |
           set -euo pipefail
           if [ "${{ inputs.acao }}" = "dia" ]; then
@@ -70,7 +71,7 @@ jobs:
             rollback;"
 
       - name: Mover os carros no mapa
-        if: inputs.acao == 'publicar' && inputs.simular_minutos != '0'
+        if: (inputs.acao == 'publicar' || inputs.acao == 'simular') && inputs.simular_minutos != '0'
         run: |
           end=$(( $(date +%s) + ${{ inputs.simular_minutos }} * 60 ))
           n=0
