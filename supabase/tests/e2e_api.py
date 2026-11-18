@@ -29,6 +29,19 @@ PW = os.environ["QA_PASSWORD"]
 
 results = []  # (etapa, ok, ms, detalhe)
 
+# Respostas reais da API, guardadas para o teste do app (test/api_parsing_test.dart)
+# conferir se os modelos em Dart leem tudo sem erro.
+FIXTURES = os.environ.get("API_FIXTURES", "api_fixtures")
+
+
+def save(name, data):
+    if data is None:
+        return data
+    os.makedirs(FIXTURES, exist_ok=True)
+    with open(os.path.join(FIXTURES, f"{name}.json"), "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    return data
+
 
 class ApiError(Exception):
     def __init__(self, status, message):
@@ -153,12 +166,12 @@ def main():
         step(f"[{n}] save_emergency_contact", lambda u=u: u.rpc("save_emergency_contact", {"p_name": "Contato QA", "p_phone": "61999990000", "p_relation": "família"}))
         step(f"[{n}] submit_identity_documents", lambda u=u: u.rpc("submit_identity_documents"))
         step(f"[{n}] finish_onboarding", lambda u=u: u.rpc("finish_onboarding"))
-        step(f"[{n}] my_profile (pronto)", lambda u=u: require(u.rpc("my_profile")["onboarding_done"] is True, "cadastro não terminou"))
+        step(f"[{n}] my_profile (pronto)", lambda u=u: require(save("my_profile", u.rpc("my_profile"))["onboarding_done"] is True, "cadastro não terminou"))
 
     # ------------------------------------------------------------------ carro
     def add_car():
         drv.rest("POST", "vehicles", {"plate": "QAA1A11", "brand": "Fiat", "model": "Argo", "color": "Prata", "seats": 4})
-        rows = drv.rest("GET", "vehicles?select=*&order=brand")
+        rows = save("vehicles", drv.rest("GET", "vehicles?select=*&order=brand"))
         require(len(rows) == 1, f"esperava 1 carro, veio {len(rows)}")
         return rows[0]["id"]
     car = step("Cadastrar carro (insert vehicles)", add_car)
@@ -175,7 +188,7 @@ def main():
     # --------------------------------------------------- dados do mapa / grafo
     step("Paradas do grafo (stops source=manual)", lambda: p1.rest("GET", "stops?select=*&source=eq.manual"))
     step("Ligações do grafo (stop_links)", lambda: p1.rest("GET", "stop_links?select=*"))
-    stops_view = step("stops_in_view (Asa Sul)", lambda: p1.rpc("stops_in_view", {"p_south": -15.82, "p_west": -47.91, "p_north": -15.80, "p_east": -47.88}))
+    stops_view = step("stops_in_view (Asa Sul)", lambda: save("stops_in_view", p1.rpc("stops_in_view", {"p_south": -15.82, "p_west": -47.91, "p_north": -15.80, "p_east": -47.88})))
     step("stops_in_view trouxe paradas", lambda: require(stops_view and len(stops_view) > 0, "nenhuma parada"))
     if stops_view:
         step("stops_by_ids", lambda: require(len(p1.rpc("stops_by_ids", {"p_ids": [stops_view[0]["id"]]})) == 1, "não achou"))
@@ -203,7 +216,7 @@ def main():
 
     # ----------------------------------------------------------- buscar e reservar
     def find(user, ride, frm=(-15.8095, -47.8955), to=(-15.8495, -47.9480)):
-        offers = user.rpc("search_rides_near", {"p_from_lat": frm[0], "p_from_lng": frm[1], "p_to_lat": to[0], "p_to_lng": to[1], "p_only_my_communities": False})
+        offers = save("search_rides_near", user.rpc("search_rides_near", {"p_from_lat": frm[0], "p_from_lng": frm[1], "p_to_lat": to[0], "p_to_lng": to[1], "p_only_my_communities": False}))
         mine = [o for o in offers if o["ride"]["id"] == ride]
         require(mine, f"não achou a viagem entre {len(offers)} ofertas")
         return mine[0]
@@ -212,15 +225,15 @@ def main():
     if offer_a:
         booking_p1 = step("RESERVAR (book_seat na A)", lambda: p1.rpc("book_seat", {"p_ride": ride_a, "p_pickup": offer_a["pickup_stop_id"], "p_dropoff": offer_a["dropoff_stop_id"]}))
         step("Reservar de novo é recusado", lambda: p1.rpc("book_seat", {"p_ride": ride_a, "p_pickup": offer_a["pickup_stop_id"], "p_dropoff": offer_a["dropoff_stop_id"]}), expect_error="already_booked")
-    step("my_bookings mostra a reserva", lambda: require(any(b["id"] == booking_p1 for b in p1.rpc("my_bookings")), "reserva sumiu"))
+    step("my_bookings mostra a reserva", lambda: require(any(b["id"] == booking_p1 for b in save("my_bookings", p1.rpc("my_bookings"))), "reserva sumiu"))
     step("open_rides_overview", lambda: p1.rpc("open_rides_overview"))
-    step("Motorista vê a passageira (my_rides.bookings)", lambda: require(any(b["id"] == booking_p1 for r in drv.rpc("my_rides") if r["id"] == ride_a for b in r["bookings"]), "não aparece"))
+    step("Motorista vê a passageira (my_rides.bookings)", lambda: require(any(b["id"] == booking_p1 for r in save("my_rides", drv.rpc("my_rides")) if r["id"] == ride_a for b in r["bookings"]), "não aparece"))
 
     # ------------------------------------------------- posição ao vivo / acompanhar
     start_pt = route["coordinates"][0]
     step("update_my_location (motorista com viagem saindo)", lambda: require(drv.rpc("update_my_location", {"p_lat": start_pt[1], "p_lng": start_pt[0], "p_heading": 90}) is True, "não guardou a posição"))
-    step("nearby_drivers (passageira vê o carro dela)", lambda: require(any(d.get("is_my_ride") for d in p1.rpc("nearby_drivers", {"p_lat": start_pt[1], "p_lng": start_pt[0], "p_radius_m": 4000})), "carro não aparece"))
-    step("track_ride (passageira acompanha)", lambda: require(p1.rpc("track_ride", {"p_ride": ride_a})["live"] is True, "sem posição ao vivo"))
+    step("nearby_drivers (passageira vê o carro dela)", lambda: require(any(d.get("is_my_ride") for d in save("nearby_drivers", p1.rpc("nearby_drivers", {"p_lat": start_pt[1], "p_lng": start_pt[0], "p_radius_m": 4000}))), "carro não aparece"))
+    step("track_ride (passageira acompanha)", lambda: require(save("track_ride", p1.rpc("track_ride", {"p_ride": ride_a}))["live"] is True, "sem posição ao vivo"))
     step("Estranho não acompanha a viagem", lambda: p2.rpc("track_ride", {"p_ride": ride_a}), expect_error="not_allowed")
 
     # ---------------------------------------------- cancelar, remover (viagem B)
@@ -238,14 +251,14 @@ def main():
     # ------------------------------------------------------------- comunidades
     def community():
         drv.rpc("create_community", {"p_name": "QA Comunidade", "p_description": "teste automático", "p_kind": "group", "p_join_mode": "invite_code", "p_anchor_stop": None})
-        c = [c for c in drv.rpc("my_communities") if c["name"] == "QA Comunidade"]
+        c = [c for c in save("my_communities", drv.rpc("my_communities")) if c["name"] == "QA Comunidade"]
         require(c, "não aparece em my_communities")
         return c[0]
     com = step("create_community", community)
     if com:
         code = com.get("invite_code")
         step("join_community (passageira entra pelo código)", lambda: require(p1.rpc("join_community", {"p_invite_code": code}) == "active", "não ficou ativa"))
-        step("community_members_list", lambda: require(len(drv.rpc("community_members_list", {"p_community": com["id"]})) == 2, "membros errados"))
+        step("community_members_list", lambda: require(len(save("community_members_list", drv.rpc("community_members_list", {"p_community": com["id"]}))) == 2, "membros errados"))
         step("leave_community", lambda: p1.rpc("leave_community", {"p_community": com["id"]}))
 
     # ----------------------------------------------------------------- eventos
@@ -256,8 +269,8 @@ def main():
         "p_starts_at": iso(start), "p_ends_at": iso(start + dt.timedelta(hours=2)), "p_meeting_point": "Portão 3",
         "p_description": "teste automático", "p_community": None}))
     if ev:
-        step("upcoming_events (passageira vê)", lambda: require(any(e["id"] == ev for e in p1.rpc("upcoming_events", {"p_lat": ASA_SUL_107[0], "p_lng": ASA_SUL_107[1]})), "evento não aparece"))
-        evj = step("event_json", lambda: p1.rpc("event_json", {"p_event": ev, "p_lat": ASA_SUL_107[0], "p_lng": ASA_SUL_107[1]}))
+        step("upcoming_events (passageira vê)", lambda: require(any(e["id"] == ev for e in save("upcoming_events", p1.rpc("upcoming_events", {"p_lat": ASA_SUL_107[0], "p_lng": ASA_SUL_107[1]}))), "evento não aparece"))
+        evj = step("event_json", lambda: save("event_json", p1.rpc("event_json", {"p_event": ev, "p_lat": ASA_SUL_107[0], "p_lng": ASA_SUL_107[1]})))
         if evj:
             step("event_by_code", lambda: require(p1.rpc("event_by_code", {"p_code": evj["invite_code"]})["id"] == ev, "código não acha"))
         step("set_event_interest (preciso de carona)", lambda: p1.rpc("set_event_interest", {"p_event": ev, "p_leg": "ida", "p_lat": ASA_SUL_107[0], "p_lng": ASA_SUL_107[1], "p_on": True}))
@@ -268,7 +281,7 @@ def main():
                 "p_event": ev, "p_leg": "ida", "p_vehicle": car, "p_route": ev_route, "p_origin_label": "Asa Sul",
                 "p_dest_label": "Estádio Mané Garrincha", "p_departure": iso(start - dt.timedelta(minutes=40)),
                 "p_seats": 3, "p_women_only": False}))
-            step("event_rides (passageira acha a carona)", lambda: require(any(o["ride"]["id"] == er["ride_id"] for o in p1.rpc("event_rides", {"p_event": ev, "p_leg": "ida", "p_lat": ASA_SUL_107[0], "p_lng": ASA_SUL_107[1]})), "não achou"))
+            step("event_rides (passageira acha a carona)", lambda: require(any(o["ride"]["id"] == er["ride_id"] for o in save("event_rides", p1.rpc("event_rides", {"p_event": ev, "p_leg": "ida", "p_lat": ASA_SUL_107[0], "p_lng": ASA_SUL_107[1]}))), "não achou"))
             if er:
                 step("Cancelar carona do evento", lambda: drv.rpc("cancel_ride", {"p_ride": er["ride_id"]}))
         step("cancel_event", lambda: drv.rpc("cancel_event", {"p_event": ev}))
@@ -298,7 +311,7 @@ def main():
     booking_p2 = None
     if offer_live:
         booking_p2 = step("Reservar com a corrida andando", lambda: p2.rpc("book_seat", {"p_ride": ride_a, "p_pickup": offer_live["pickup_stop_id"], "p_dropoff": offer_live["dropoff_stop_id"]}))
-    nav2 = step("Navegação muda com o passageiro novo", lambda: drv.rpc("driver_navigation", {"p_ride": ride_a}))
+    nav2 = step("Navegação muda com o passageiro novo", lambda: save("driver_navigation", drv.rpc("driver_navigation", {"p_ride": ride_a})))
     if nav1 and nav2:
         step("Versão da navegação mudou (app recalcula a rota)", lambda: require(nav2["version"] != nav1["version"], "versão igual"))
         step("Passageiro novo entrou na lista de paradas", lambda: require(any(a["booking_id"] == booking_p2 for s in nav2["stops"] for a in s["actions"]), "não entrou"))
@@ -312,7 +325,7 @@ def main():
         step("Sobrou só deixar a passageira", lambda: require([a["kind"] for s in nav3["stops"] for a in s["actions"]] == ["dropoff"], f"ações: {[a['kind'] for s in nav3['stops'] for a in s['actions']]}"))
     step("DESEMBARCOU (drop_passenger)", lambda: drv.rpc("drop_passenger", {"p_booking": booking_p1}))
     step("ENCERRAR CORRIDA (finish_ride)", lambda: drv.rpc("finish_ride", {"p_ride": ride_a}))
-    step("Reserva da passageira fica concluída", lambda: require([b["status"] for b in p1.rpc("my_bookings") if b["id"] == booking_p1] == ["completed"], "status errado"))
+    step("Reserva da passageira fica concluída", lambda: require([b["status"] for b in save("my_bookings_done", p1.rpc("my_bookings")) if b["id"] == booking_p1] == ["completed"], "status errado"))
     step("stop_sharing_location", lambda: drv.rpc("stop_sharing_location"))
 
 
