@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../communities/communities_tab.dart';
+import '../events/events_tab.dart';
 import '../profile/profile_tab.dart';
 import '../trips/trips_tab.dart';
 import 'map_tab.dart';
@@ -19,7 +20,7 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       body: IndexedStack(
         index: _index,
-        children: const [MapTab(), TripsTab(), CommunitiesTab(), ProfileTab()],
+        children: const [MapTab(), EventsTab(), TripsTab(), CommunitiesTab(), ProfileTab()],
       ),
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFF2C3A5C)))),
@@ -28,6 +29,8 @@ class _HomeShellState extends State<HomeShell> {
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map), label: 'Início'),
+          NavigationDestination(
+              icon: Icon(Icons.local_activity_outlined), selectedIcon: Icon(Icons.local_activity), label: 'Eventos'),
           NavigationDestination(
               icon: Icon(Icons.route_outlined), selectedIcon: Icon(Icons.route), label: 'Viagens'),
           NavigationDestination(

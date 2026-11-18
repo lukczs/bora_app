@@ -514,3 +514,72 @@ class BoraException implements Exception {
   @override
   String toString() => message;
 }
+
+
+/// Evento (jogo, show, festa...) com as caronas organizadas em volta.
+class BoraEvent {
+  const BoraEvent({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.venueLabel,
+    required this.point,
+    required this.startsAt,
+    required this.endsAt,
+    required this.inviteCode,
+    this.description = '',
+    this.meetingPoint,
+    this.communityName,
+    this.isMine = false,
+    this.distanceM,
+    this.ridesIda = 0,
+    this.ridesVolta = 0,
+    this.seats = 0,
+    this.interested = 0,
+    this.myInterest = const {},
+  });
+
+  final String id;
+  final String name;
+  final String kind;
+  final String venueLabel;
+  final LatLng point;
+  final DateTime startsAt;
+  final DateTime endsAt;
+  final String inviteCode;
+  final String description;
+  final String? meetingPoint;
+  final String? communityName;
+  final bool isMine;
+  final int? distanceM;
+  final int ridesIda;
+  final int ridesVolta;
+  final int seats;
+  final int interested;
+
+  /// 'ida' e/ou 'volta' quando a pessoa marcou "preciso de carona".
+  final Set<String> myInterest;
+
+  bool get happeningNow => DateTime.now().isAfter(startsAt) && DateTime.now().isBefore(endsAt);
+
+  factory BoraEvent.fromMap(Map<String, dynamic> m) => BoraEvent(
+        id: m['id'] as String,
+        name: m['name'] as String,
+        kind: m['kind'] as String? ?? 'outro',
+        venueLabel: m['venue_label'] as String,
+        point: LatLng((m['lat'] as num).toDouble(), (m['lng'] as num).toDouble()),
+        startsAt: DateTime.parse(m['starts_at'] as String).toLocal(),
+        endsAt: DateTime.parse(m['ends_at'] as String).toLocal(),
+        inviteCode: m['invite_code'] as String,
+        description: m['description'] as String? ?? '',
+        meetingPoint: m['meeting_point'] as String?,
+        communityName: m['community_name'] as String?,
+        isMine: m['is_mine'] as bool? ?? false,
+        distanceM: (m['distance_m'] as num?)?.toInt(),
+        ridesIda: (m['rides_ida'] as num?)?.toInt() ?? 0,
+        ridesVolta: (m['rides_volta'] as num?)?.toInt() ?? 0,
+        seats: (m['seats'] as num?)?.toInt() ?? 0,
+        interested: (m['interested'] as num?)?.toInt() ?? 0,
+        myInterest: {for (final l in (m['my_interest'] as List? ?? const [])) l as String},
+      );
+}

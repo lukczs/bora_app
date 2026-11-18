@@ -19,6 +19,8 @@ import '../features/onboarding/profile_screen.dart';
 import '../features/onboarding/register_screen.dart';
 import '../features/auth/contact_screen.dart';
 import '../features/rides/driver_ride_screen.dart';
+import '../features/events/create_event_screen.dart';
+import '../features/events/event_screen.dart';
 import '../features/rides/publish_ride_screen.dart';
 import '../features/rides/vehicle_form_screen.dart';
 import '../features/search/offer_detail_screen.dart';
@@ -78,8 +80,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/booking/:id', builder: (_, s) => BookingScreen(bookingId: s.pathParameters['id']!)),
       GoRoute(
         path: '/publish',
-        builder: (_, s) => PublishRideScreen(editRideId: s.uri.queryParameters['edit']),
+        builder: (_, s) => PublishRideScreen(
+          editRideId: s.uri.queryParameters['edit'],
+          eventId: s.uri.queryParameters['event'],
+          eventLeg: s.uri.queryParameters['leg'],
+        ),
       ),
+      GoRoute(path: '/event/new', builder: (_, __) => const CreateEventScreen()),
+      GoRoute(path: '/event/:id', builder: (_, s) => EventScreen(eventId: s.pathParameters['id']!)),
       GoRoute(path: '/my-ride/:id', builder: (_, s) => DriverRideScreen(rideId: s.pathParameters['id']!)),
       GoRoute(path: '/vehicle', builder: (_, s) => VehicleFormScreen(vehicleId: s.uri.queryParameters['id'])),
       GoRoute(path: '/community/new', builder: (_, __) => const CreateCommunityScreen()),

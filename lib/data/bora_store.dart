@@ -473,6 +473,117 @@ class BoraStore extends ChangeNotifier {
     );
   }
 
+  // ------------------------------------------------------------------
+  // Eventos
+  // ------------------------------------------------------------------
+  Future<List<BoraEvent>> upcomingEvents() async {
+    final data = await _client.rpc('upcoming_events', params: {'p_lat': position.latitude, 'p_lng': position.longitude}) as List;
+    return [for (final m in data) BoraEvent.fromMap(Map<String, dynamic>.from(m as Map))];
+  }
+
+  Future<BoraEvent?> event(String id) async {
+    final data = await _client.rpc('event_json', params: {'p_event': id, 'p_lat': position.latitude, 'p_lng': position.longitude});
+    return data == null ? null : BoraEvent.fromMap(Map<String, dynamic>.from(data as Map));
+  }
+
+  Future<BoraEvent?> eventByCode(String code) async {
+    final data = await _client.rpc('event_by_code', params: {'p_code': code});
+    return data == null ? null : BoraEvent.fromMap(Map<String, dynamic>.from(data as Map));
+  }
+
+  Future<List<BoraEvent>> similarEvents(LatLng p, DateTime startsAt) async {
+    final data = await _client.rpc('similar_events', params: {
+      'p_lat': p.latitude,
+      'p_lng': p.longitude,
+      'p_starts_at': startsAt.toUtc().toIso8601String(),
+    }) as List;
+    return [for (final m in data) BoraEvent.fromMap(Map<String, dynamic>.from(m as Map))];
+  }
+
+  Future<String> createEvent({
+    required String name,
+    required String kind,
+    required String venueLabel,
+    required LatLng point,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    String? meetingPoint,
+    String description = '',
+    String? communityId,
+  }) async {
+    final id = await _client.rpc('create_event', params: {
+      'p_name': name,
+      'p_kind': kind,
+      'p_venue_label': venueLabel,
+      'p_lat': point.latitude,
+      'p_lng': point.longitude,
+      'p_starts_at': startsAt.toUtc().toIso8601String(),
+      'p_ends_at': endsAt.toUtc().toIso8601String(),
+      'p_meeting_point': meetingPoint,
+      'p_description': description,
+      'p_community': communityId,
+    });
+    return id as String;
+  }
+
+  Future<void> cancelEvent(String id) => _client.rpc('cancel_event', params: {'p_event': id});
+
+  /// Caronas do evento a até 5 km de [from] (ida) ou de [from] na volta.
+  Future<List<RideOffer>> eventRides(String eventId, String leg, LatLng from) async {
+    final data = await _client.rpc('event_rides', params: {
+      'p_event': eventId,
+      'p_leg': leg,
+      'p_lat': from.latitude,
+      'p_lng': from.longitude,
+    }) as List;
+    final offers = [for (final o in data) RideOffer.fromMap(Map<String, dynamic>.from(o as Map))];
+    _offers.addEntries(offers.map((o) => MapEntry(o.ride.id, o)));
+    _cacheStops([for (final o in offers) ...[if (o.pickup != null) o.pickup!, if (o.dropoff != null) o.dropoff!]]);
+    return offers;
+  }
+
+  Future<void> setEventInterest(String eventId, String leg, LatLng at, bool on) => _client.rpc('set_event_interest',
+      params: {'p_event': eventId, 'p_leg': leg, 'p_lat': at.latitude, 'p_lng': at.longitude, 'p_on': on});
+
+  Future<int> eventDemand(String eventId, String leg, Map<String, dynamic> routeGeoJson) async {
+    try {
+      final n = await _client.rpc('event_demand', params: {'p_event': eventId, 'p_leg': leg, 'p_route': routeGeoJson});
+      return (n as num).toInt();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<({String rideId, int stops, int distanceM})> publishEventRide({
+    required String eventId,
+    required String leg,
+    required String vehicleId,
+    required Map<String, dynamic> routeGeoJson,
+    required String originLabel,
+    required String destLabel,
+    required DateTime departureAt,
+    required int seats,
+    required bool womenOnly,
+  }) async {
+    final data = await _client.rpc('publish_event_ride', params: {
+      'p_event': eventId,
+      'p_leg': leg,
+      'p_vehicle': vehicleId,
+      'p_route': routeGeoJson,
+      'p_origin_label': originLabel,
+      'p_dest_label': destLabel,
+      'p_departure': departureAt.toUtc().toIso8601String(),
+      'p_seats': seats,
+      'p_women_only': womenOnly,
+    }) as Map;
+    await refreshTrips();
+    return (
+      rideId: data['ride_id'] as String,
+      stops: (data['stops'] as num).toInt(),
+      distanceM: (data['distance_m'] as num).toInt(),
+    );
+  }
+
   /// Quantas buscas sem resultado passaram perto desta rota nos últimos 14 dias.
   Future<int> demandNearRoute(Map<String, dynamic> routeGeoJson) async {
     try {

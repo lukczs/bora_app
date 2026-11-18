@@ -18,8 +18,12 @@ import '../places/place_picker.dart';
 /// Oferecer carona: origem e destino livres, rota real, paradas descobertas pelo servidor.
 /// Com [editRideId], edita só horário, vagas e recorrência (a rota fica como está).
 class PublishRideScreen extends ConsumerStatefulWidget {
-  const PublishRideScreen({super.key, this.editRideId});
+  const PublishRideScreen({super.key, this.editRideId, this.eventId, this.eventLeg});
   final String? editRideId;
+
+  /// Carona para um evento: 'ida' termina no evento, 'volta' sai dele.
+  final String? eventId;
+  final String? eventLeg;
   @override
   ConsumerState<PublishRideScreen> createState() => _PublishRideScreenState();
 }
@@ -40,6 +44,9 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
   bool _loading = false;
 
   bool get _editing => widget.editRideId != null;
+  BoraEvent? _event;
+  bool get _forEvent => widget.eventId != null;
+  bool get _ida => widget.eventLeg != 'volta';
 
   @override
   void initState() {
@@ -60,6 +67,27 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
       final soon = DateTime.now().add(const Duration(minutes: 30));
       _departure = DateTime(soon.year, soon.month, soon.day, soon.hour, (soon.minute ~/ 5) * 5);
     }
+    if (_forEvent) _loadEvent();
+  }
+
+  Future<void> _loadEvent() async {
+    final store = ref.read(storeProvider);
+    final e = await store.event(widget.eventId!);
+    if (e == null || !mounted) return;
+    final venue = Place(label: e.venueLabel, point: e.point);
+    setState(() {
+      _event = e;
+      if (_ida) {
+        _destination = venue;
+        final d = e.startsAt.subtract(const Duration(hours: 1));
+        _departure = DateTime(d.year, d.month, d.day, d.hour, (d.minute ~/ 5) * 5);
+      } else {
+        _origin = venue;
+        _destination = null;
+        _departure = e.endsAt;
+      }
+    });
+    if (_origin != null && _destination != null) await _route();
   }
 
   Future<void> _pick({required bool origin}) async {
@@ -91,7 +119,9 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
       final plan = await ref.read(routingProvider).route(o.point, d.point);
       if (!mounted) return;
       setState(() => _plan = plan);
-      final demand = await store.demandNearRoute(plan.geoJson);
+      final demand = _forEvent
+          ? await store.eventDemand(widget.eventId!, widget.eventLeg ?? 'ida', plan.geoJson)
+          : await store.demandNearRoute(plan.geoJson);
       if (mounted) setState(() => _demand = demand);
     } catch (e) {
       if (mounted) showBoraError(context, friendlyError(e));
@@ -127,6 +157,23 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
         showBoraError(context, _vehicleId == null ? 'Cadastre um carro antes.' : 'Defina origem e destino.');
         return;
       }
+      if (_forEvent) {
+        final r = await store.publishEventRide(
+          eventId: widget.eventId!,
+          leg: widget.eventLeg ?? 'ida',
+          vehicleId: _vehicleId!,
+          routeGeoJson: _plan!.geoJson,
+          originLabel: _origin!.label,
+          destLabel: _destination!.label,
+          departureAt: _departure,
+          seats: _seats,
+          womenOnly: _womenOnly,
+        );
+        if (!mounted) return;
+        showBoraError(context, 'Carona publicada no evento com ${r.stops} pontos de embarque.');
+        context.pushReplacement('/my-ride/${r.rideId}');
+        return;
+      }
       final r = await store.publishRideRoute(
         vehicleId: _vehicleId!,
         routeGeoJson: _plan!.geoJson,
@@ -158,10 +205,14 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
     if (_seats > maxSeats) _seats = maxSeats;
 
     return StepScaffold(
-      title: _editing ? 'Editar viagem' : 'Oferecer carona',
+      title: _editing ? 'Editar viagem' : (_forEvent ? (_ida ? 'Carona de ida' : 'Carona de volta') : 'Oferecer carona'),
       subtitle: _editing
           ? 'O trajeto continua o mesmo. Ajuste horário, vagas e repetição.'
-          : 'Diga por onde você já vai passar. O Bora encontra as paradas no caminho e quem precisa de carona nelas.',
+          : _forEvent
+              ? (_event == null
+                  ? 'Carregando o evento…'
+                  : (_ida ? 'Para ${_event!.name}. Diga de onde você sai.' : 'Saindo de ${_event!.name}. Diga para onde você vai.'))
+              : 'Diga por onde você já vai passar. O Bora encontra as paradas no caminho e quem precisa de carona nelas.',
       action: BoraButton(
         label: _editing ? 'Salvar' : 'Publicar viagem',
         loading: _loading,
@@ -175,9 +226,18 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
               padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.xs),
               child: Column(
                 children: [
-                  _PlaceRow(label: 'Saída', value: _origin?.label, dot: true, onTap: () => _pick(origin: true)),
+                  _PlaceRow(
+                      label: 'Saída',
+                      value: _origin?.label,
+                      dot: true,
+                      locked: _forEvent && !_ida,
+                      onTap: () => _pick(origin: true)),
                   const Divider(height: 1),
-                  _PlaceRow(label: 'Destino', value: _destination?.label, onTap: () => _pick(origin: false)),
+                  _PlaceRow(
+                      label: 'Destino',
+                      value: _destination?.label,
+                      locked: _forEvent && _ida,
+                      onTap: () => _pick(origin: false)),
                 ],
               ),
             ),
@@ -203,7 +263,7 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
                   Expanded(child: Metric(value: formatKm(_plan!.distanceM), label: 'distância')),
                   Expanded(child: Metric(value: '${_plan!.duration.inMinutes} min', label: 'sem trânsito')),
                   Expanded(
-                    child: Metric(value: '${_demand ?? '–'}', label: 'buscas no caminho', alignEnd: true),
+                    child: Metric(value: '${_demand ?? '–'}', label: _forEvent ? 'pedindo carona' : 'buscas no caminho', alignEnd: true),
                   ),
                 ],
               ),
@@ -311,15 +371,16 @@ class _PublishRideScreenState extends ConsumerState<PublishRideScreen> {
 }
 
 class _PlaceRow extends StatelessWidget {
-  const _PlaceRow({required this.label, required this.value, required this.onTap, this.dot = false});
+  const _PlaceRow({required this.label, required this.value, required this.onTap, this.dot = false, this.locked = false});
   final String label;
   final String? value;
   final VoidCallback onTap;
   final bool dot;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
+        onTap: locked ? null : onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: Space.sm),
           child: Row(
@@ -340,7 +401,7 @@ class _PlaceRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: AppColors.textFaint),
+              Icon(locked ? Icons.event : Icons.chevron_right, color: AppColors.textFaint),
             ],
           ),
         ),
