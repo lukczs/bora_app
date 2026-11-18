@@ -104,13 +104,21 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
   Future<void> follow(LatLng p, {required double heading, double zoom = 17}) async {
     // No flutter_map a rotação é no sentido horário; para a frente do carro
     // ficar para cima, gira ao contrário do rumo.
-    _map.rotate(-heading);
-    final pad = widget.padding;
-    _map.move(p, zoom, offset: Offset(0, (pad.top - pad.bottom) / 2));
+    try {
+      _map.rotate(-heading);
+      final pad = widget.padding;
+      _map.move(p, zoom, offset: Offset(0, (pad.top - pad.bottom) / 2));
+    } catch (_) {
+      // mapa ainda não desenhado
+    }
   }
 
   @override
-  Future<void> resetBearing() async => _map.rotate(0);
+  Future<void> resetBearing() async {
+    try {
+      _map.rotate(0);
+    } catch (_) {}
+  }
 
   void _onPos(MapCamera cam, bool gesture) {
     if (!_moving) {

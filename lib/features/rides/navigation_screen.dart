@@ -284,7 +284,7 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     final n = math.min(i + 1, r.steps.length - 1);
     final next = r.steps[n];
     final at = next.from.clamp(0, _cum.length - 1);
-    return (next, math.max(0, _cum[at] - _along), n);
+    return (next, math.max(0.0, _cum[at] - _along), n);
   }
 
   String _stepText(NavStep s, int stepIndex) {
@@ -305,10 +305,10 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     if (s == null || _cum.isEmpty) return double.infinity;
     final idx = _stopIndex[s.stopId];
     if (idx == null) return _dist.as(LengthUnit.Meter, _shown ?? s.point, s.point);
-    return math.max(0, _cum[idx.clamp(0, _cum.length - 1)] - _along);
+    return math.max(0.0, _cum[idx.clamp(0, _cum.length - 1)] - _along);
   }
 
-  double get _metersToEnd => _cum.isEmpty ? 0 : math.max(0, _cum.last - _along);
+  double get _metersToEnd => _cum.isEmpty ? 0 : math.max(0.0, _cum.last - _along);
 
   Duration get _timeToEnd {
     final r = _route;
