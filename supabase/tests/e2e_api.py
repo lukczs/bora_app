@@ -326,7 +326,11 @@ def main():
 
     path = ride_row["path"]
     pos = {s_["id"]: (s_["lat"], s_["lng"]) for s_ in p2.rpc("stops_by_ids", {"p_ids": path})}
-    behind, ahead, last = path[1], path[int(len(path) * 0.8)], path[-1]
+    behind, last = path[1], path[-1]
+    # parada à frente com folga: a uns 3 km do carro (dá tempo de o passageiro chegar)
+    mid_ll = (mid[1], mid[0])
+    after = [i for i in path[len(path) * 2 // 5:-1] if i in pos and meters(pos[i], mid_ll) > 2500 and meters(pos[i], pos[last]) > 1500]
+    ahead = after[0] if after else path[int(len(path) * 0.8)]
     step("Parada que o carro já passou é recusada", lambda: p2.rpc("book_seat", {"p_ride": ride_a, "p_pickup": behind, "p_dropoff": last}), expect_error="pickup_already_passed")
 
     # passageiro novo no caminho, com a corrida andando (em cima de uma parada à frente)
