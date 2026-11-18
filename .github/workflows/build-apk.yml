@@ -37,10 +37,10 @@ jobs:
       - name: Criar a parte Android do projeto
         run: |
           mkdir -p /tmp/keep
-          cp -r lib assets pubspec.yaml /tmp/keep/
+          cp -r lib assets test pubspec.yaml /tmp/keep/
           flutter create --org br.com.bora --project-name bora --platforms android .
           rm -rf lib test
-          cp -r /tmp/keep/lib /tmp/keep/assets .
+          cp -r /tmp/keep/lib /tmp/keep/assets /tmp/keep/test .
           cp /tmp/keep/pubspec.yaml .
           # O "lint vital" do Android quebra analisando o plugin do Google Maps (bug do lint).
           # Desliga só essa checagem; o código Dart continua passando pelo flutter analyze.
