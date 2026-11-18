@@ -7,6 +7,8 @@ OpenRouteService e publica pela MESMA função que o app usa
 
 Uso (no GitHub Actions):
   python3 demo_rides.py publicar <minutos_ate_sair>  -> gera seed.sql
+  python3 demo_rides.py dia [AAAA-MM-DD] [HH:MM,HH:MM,...] -> caronas o dia todo
+                                                     (padrão: amanhã, de 2 em 2 horas) + evento
   python3 demo_rides.py evento                       -> evento de teste com caronas de ida e volta
   python3 demo_rides.py remover                      -> gera seed.sql
 
@@ -156,7 +158,9 @@ select {q(leg + ' ' + place[0])} as carona, publish_event_ride((select id from _
     return "\n".join(out)
 
 
-def publish_sql(minutes):
+def publish_sql(minutes=None, day=None, hours=None):
+    """Sem day: cada motorista sai daqui a `minutes` (+3 min por motorista).
+    Com day: cada motorista publica uma carona em cada horário de `hours` nesse dia."""
     out = ["begin;", "set local search_path = public, extensions;", cleanup_sql()]
     for i, (name, gender, car, plate, color, seats, a, b) in enumerate(DRIVERS, start=1):
         print(f"{i}. {name}: {a[0]} -> {b[0]}", file=sys.stderr)
@@ -165,7 +169,10 @@ def publish_sql(minutes):
         geom, dist, dur = route(pa, pb)
         print(f"   rota: {dist/1000:.1f} km, {dur/60:.0f} min, {len(geom['coordinates'])} pontos", file=sys.stderr)
         u = uid(i)
-        dep = minutes + (i - 1) * 3
+        if day:
+            deps = [f"('{day} {h}'::timestamp at time zone 'America/Sao_Paulo') + interval '{(i - 1) * 3} minutes'" for h in hours]
+        else:
+            deps = [f"now() + interval '{minutes + (i - 1) * 3} minutes'"]
         out.append(f"""
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
                         raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
@@ -182,10 +189,12 @@ insert into vehicles (owner_id, plate, brand, model, color, seats)
 values ({q(u)}, {q(plate)}, {q(car.split()[0])}, {q(' '.join(car.split()[1:]))}, {q(color)}, {seats});
 select set_config('request.jwt.claim.sub', {q(u)}, true);
 select set_config('request.jwt.claims', {q(json.dumps({'sub': u, 'role': 'authenticated'}))}, true);
-select '{name}' as motorista, publish_ride_route(
+""")
+        for dep in deps:
+            out.append(f"""select '{name}' as motorista, publish_ride_route(
   (select id from vehicles where owner_id = {q(u)}),
   {q(json.dumps(geom))}::jsonb, {q(a[0])}, {q(b[0])},
-  now() + interval '{dep} minutes', {seats}, '{{1,2,3,4,5}}', false, null) as resultado;
+  {dep}, {seats}, '{{1,2,3,4,5}}', false, null) as resultado;
 """)
     out.append("commit;")
     return "\n".join(out)
@@ -195,6 +204,18 @@ if __name__ == "__main__":
     action = sys.argv[1]
     if action == "remover":
         print("begin;\n" + cleanup_sql() + "\ncommit;")
+    elif action == "dia":
+        if not KEY:
+            sys.exit("Falta ORS_API_KEY")
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+        day = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else \
+            (dt.datetime.now(ZoneInfo("America/Sao_Paulo")).date() + dt.timedelta(days=1)).isoformat()
+        hours = (sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else
+                 "07:00,09:00,11:00,13:00,15:00,17:00,19:00,21:00").split(",")
+        print(f"dia {day}, horários {hours}", file=sys.stderr)
+        print(publish_sql(day=day, hours=[h.strip() for h in hours]))
+        print(event_sql())
     elif action == "evento":
         if not KEY:
             sys.exit("Falta ORS_API_KEY")

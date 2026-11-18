@@ -7,13 +7,19 @@ on:
   workflow_dispatch:
     inputs:
       acao:
-        description: 'publicar, evento ou remover'
+        description: 'publicar (sai daqui a pouco, carros andando), dia (caronas o dia todo + evento), evento ou remover'
         type: choice
-        options: [publicar, evento, remover]
+        options: [publicar, dia, evento, remover]
         default: publicar
       saida_em_minutos:
         description: 'Daqui a quantos minutos o primeiro sai (os outros saem a cada 3 min)'
         default: '10'
+      data:
+        description: 'Só para "dia": AAAA-MM-DD (vazio = amanhã)'
+        default: ''
+      horarios:
+        description: 'Só para "dia": horários de saída'
+        default: '07:00,09:00,11:00,13:00,15:00,17:00,19:00,21:00'
       simular_minutos:
         description: 'Por quantos minutos mover os carros no mapa (0 = não mover)'
         default: '40'
@@ -38,7 +44,11 @@ jobs:
       - name: Gerar e aplicar
         run: |
           set -euo pipefail
-          python3 supabase/seed/demo_rides.py "${{ inputs.acao }}" "${{ inputs.saida_em_minutos }}" > /tmp/seed.sql
+          if [ "${{ inputs.acao }}" = "dia" ]; then
+            python3 supabase/seed/demo_rides.py dia "${{ inputs.data }}" "${{ inputs.horarios }}" > /tmp/seed.sql
+          else
+            python3 supabase/seed/demo_rides.py "${{ inputs.acao }}" "${{ inputs.saida_em_minutos }}" > /tmp/seed.sql
+          fi
           psql "$DB" -v ON_ERROR_STOP=1 -P pager=off -f /tmp/seed.sql | grep -vE '^(BEGIN|COMMIT|DELETE|INSERT|UPDATE|SET|$)' || true
 
       - name: Conferir a busca (passageiro perto do Senac indo para Sobradinho)
