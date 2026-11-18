@@ -170,7 +170,14 @@ def publish_sql(minutes=None, day=None, hours=None):
         print(f"   rota: {dist/1000:.1f} km, {dur/60:.0f} min, {len(geom['coordinates'])} pontos", file=sys.stderr)
         u = uid(i)
         if day:
-            deps = [f"('{day} {h}'::timestamp at time zone 'America/Sao_Paulo') + interval '{(i - 1) * 3} minutes'" for h in hours]
+            import datetime as dt
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo("America/Sao_Paulo")
+            soon = dt.datetime.now(tz) + dt.timedelta(minutes=10)
+            deps = [f"('{d} {h}'::timestamp at time zone 'America/Sao_Paulo') + interval '{(i - 1) * 3} minutes'"
+                    for d in day.split(",") for h in hours
+                    # horário que já passou não dá para publicar
+                    if dt.datetime.fromisoformat(f"{d}T{h}").replace(tzinfo=tz) + dt.timedelta(minutes=(i - 1) * 3) > soon]
         else:
             deps = [f"now() + interval '{minutes + (i - 1) * 3} minutes'"]
         out.append(f"""
