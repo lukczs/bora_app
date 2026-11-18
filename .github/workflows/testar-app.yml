@@ -1,0 +1,44 @@
+# Testa todas as funções do app pela API de verdade (a mesma que o celular usa).
+# Aba Actions > "Testar o app" > Run workflow. O resultado aparece no resumo da execução.
+# Cria 3 contas de teste (qa1..qa3@bora.dev) com senha aleatória e apaga tudo no fim.
+name: Testar o app
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'supabase/tests/**'
+
+concurrency:
+  group: testar-app
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DB: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar psql
+        run: sudo apt-get update -q && sudo apt-get install -y -q postgresql-client
+
+      - name: Criar contas de teste
+        run: |
+          set -euo pipefail
+          pw=$(openssl rand -hex 16)
+          echo "::add-mask::$pw"
+          echo "QA_PASSWORD=$pw" >> "$GITHUB_ENV"
+          psql "$DB" -q -v ON_ERROR_STOP=1 -v pw="$pw" -f supabase/tests/qa_users.sql
+
+      - name: Testar função por função
+        run: python3 supabase/tests/e2e_api.py
+
+      - name: Apagar as contas de teste
+        if: always()
+        run: psql "$DB" -q -v ON_ERROR_STOP=1 -f supabase/tests/qa_cleanup.sql
