@@ -45,14 +45,21 @@ class ContactScreen extends ConsumerStatefulWidget {
 class _ContactScreenState extends ConsumerState<ContactScreen> {
   final _phone = TextEditingController();
   final _email = TextEditingController();
+  final _password = TextEditingController();
   Country _country = countries.first;
   bool _useEmail = false;
+
+  /// No e-mail, o padrão é senha (funciona sem configurar nada no Supabase).
+  /// O código por e-mail fica como opção.
+  bool _emailCode = false;
+  bool _showPassword = false;
   bool _loading = false;
 
   @override
   void dispose() {
     _phone.dispose();
     _email.dispose();
+    _password.dispose();
     super.dispose();
   }
 
@@ -66,6 +73,28 @@ class _ContactScreenState extends ConsumerState<ContactScreen> {
         return;
       }
       channel = 'email';
+      if (!_emailCode) {
+        final pass = _password.text;
+        if (widget.signup &&
+            (pass.length < 8 || !RegExp(r'\d').hasMatch(pass) || !RegExp(r'[A-Za-z]').hasMatch(pass))) {
+          showBoraError(context, 'A senha precisa ter 8 caracteres ou mais, com letras e números.');
+          return;
+        }
+        if (pass.isEmpty) {
+          showBoraError(context, 'Digite a senha.');
+          return;
+        }
+        setState(() => _loading = true);
+        try {
+          await store.devEmailSignIn(email: to, password: pass, create: widget.signup);
+          // A sessão muda e o router leva para o cadastro ou para o início.
+        } catch (e) {
+          if (mounted) showBoraError(context, friendlyError(e));
+        } finally {
+          if (mounted) setState(() => _loading = false);
+        }
+        return;
+      }
     } else {
       final digits = onlyDigits(_phone.text);
       if (digits.length < _country.minDigits) {
@@ -138,7 +167,9 @@ class _ContactScreenState extends ConsumerState<ContactScreen> {
   Widget build(BuildContext context) {
     final title = widget.signup ? 'Crie sua conta' : 'Entrar no Bora';
     final subtitle = _useEmail
-        ? 'Enviaremos um código para o seu e-mail.'
+        ? (_emailCode
+            ? 'Enviaremos um código para o seu e-mail.'
+            : (widget.signup ? 'Use seu e-mail e crie uma senha.' : 'Entre com seu e-mail e senha.'))
         : 'Enviaremos um código por SMS para confirmar o número.';
 
     return StepScaffold(
@@ -166,17 +197,44 @@ class _ContactScreenState extends ConsumerState<ContactScreen> {
             ),
           ),
           const SizedBox(height: Space.lg),
-          if (_useEmail)
+          if (_useEmail) ...[
             TextField(
               controller: _email,
               autofocus: true,
               keyboardType: TextInputType.emailAddress,
               autocorrect: false,
-              onSubmitted: (_) => _continue(),
+              autofillHints: const [AutofillHints.email],
+              textInputAction: _emailCode ? TextInputAction.done : TextInputAction.next,
+              onSubmitted: (_) => _emailCode ? _continue() : null,
               style: AppText.subtitle,
               decoration: const InputDecoration(labelText: 'E-mail', hintText: 'voce@exemplo.com'),
-            )
-          else
+            ),
+            if (!_emailCode) ...[
+              const SizedBox(height: Space.sm),
+              TextField(
+                controller: _password,
+                obscureText: !_showPassword,
+                autofillHints: [widget.signup ? AutofillHints.newPassword : AutofillHints.password],
+                onSubmitted: (_) => _continue(),
+                decoration: InputDecoration(
+                  labelText: widget.signup ? 'Crie uma senha' : 'Senha',
+                  helperText: widget.signup ? '8 caracteres ou mais, com letras e números.' : null,
+                  suffixIcon: IconButton(
+                    icon: Icon(_showPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                    onPressed: () => setState(() => _showPassword = !_showPassword),
+                  ),
+                ),
+              ),
+            ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                onPressed: () => setState(() => _emailCode = !_emailCode),
+                child: Text(_emailCode ? 'Prefiro usar senha' : 'Prefiro receber um código'),
+              ),
+            ),
+          ] else
             Row(
               children: [
                 Material(
@@ -240,10 +298,6 @@ class _ContactScreenState extends ConsumerState<ContactScreen> {
             icon: Icons.facebook,
             onTap: () => _social(OAuthProvider.facebook, Env.facebookAuthEnabled, 'Facebook'),
           ),
-          if (!widget.signup) ...[
-            const SizedBox(height: Space.md),
-            TextButton(onPressed: () => context.push('/dev-login'), child: const Text('Entrar com e-mail e senha')),
-          ],
           const SizedBox(height: Space.md),
           Center(
             child: TextButton(

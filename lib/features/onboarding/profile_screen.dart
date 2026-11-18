@@ -60,7 +60,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final store = ref.watch(storeProvider);
-    final hasEmail = store.authEmail != null;
     return StepScaffold(
       step: 1,
       totalSteps: onboardingSteps,
@@ -107,10 +106,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               obscureText: !_showPassword,
               autofillHints: const [AutofillHints.newPassword],
               decoration: InputDecoration(
-                labelText: hasEmail ? 'Senha' : 'Senha (opcional)',
-                helperText: hasEmail
-                    ? 'Para entrar depois com e-mail e senha, sem esperar código.'
-                    : 'Opcional. Você sempre pode entrar pelo código no celular.',
+                labelText: 'Senha (opcional)',
+                helperText: 'Se você já criou senha, deixe em branco.',
                 helperMaxLines: 2,
                 suffixIcon: IconButton(
                   icon: Icon(_showPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
