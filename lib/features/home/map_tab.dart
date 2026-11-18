@@ -248,9 +248,14 @@ class _MapTabState extends ConsumerState<MapTab> {
     if (b == null) return;
     try {
       final t = await ref.read(storeProvider).trackRide(b.rideId);
+      final changed = _tracking != null && _tracking!.status != t.status;
       if (mounted) setState(() => _tracking = t);
+      // Embarcou, desceu, corrida começou ou acabou: atualiza a reserva.
+      if (changed || ++_polls % 3 == 0) unawaited(ref.read(storeProvider).refreshTrips().catchError((_) {}));
     } catch (_) {}
   }
+
+  int _polls = 0;
 
   // ------------------------------------------------------------------
   // UI
@@ -847,9 +852,15 @@ class _TrackingSheet extends StatelessWidget {
     final r = booking.ride;
     final t = tracking;
     final eta = t?.pickupEta;
-    final headline = eta == null
-        ? 'Carona reservada'
-        : (t!.live ? 'Motorista chega em ${_minutesUntil(eta)}' : 'Saída às ${formatTime(r?.departureAt ?? eta)}');
+    final headline = switch (booking.status) {
+      BookingStatus.boarded => 'Você está no carro',
+      BookingStatus.completed => 'Viagem concluída',
+      BookingStatus.cancelled => 'Reserva cancelada',
+      _ => eta == null
+          ? 'Carona reservada'
+          : (t!.live ? 'Motorista chega em ${_minutesUntil(eta)}' : 'Saída às ${formatTime(r?.departureAt ?? eta)}'),
+    };
+    final waiting = booking.status == BookingStatus.reserved;
 
     return _SheetFrame(
       child: ListView(
@@ -859,13 +870,17 @@ class _TrackingSheet extends StatelessWidget {
           Text(headline, style: AppText.headline.copyWith(fontSize: 22)),
           const SizedBox(height: 2),
           Text(
-            t?.live == true
-                ? 'Posição atualizada em tempo real · embarque em $pickupName'
-                : 'O carro aparece no mapa quando o motorista sair. Embarque em $pickupName.',
+            !waiting
+                ? (booking.status == BookingStatus.boarded
+                    ? 'Boa viagem! Acompanhe o caminho no mapa.'
+                    : 'Obrigado por usar o Bora.')
+                : t?.live == true
+                    ? 'Posição atualizada em tempo real · embarque em $pickupName'
+                    : 'O carro aparece no mapa quando o motorista sair. Embarque em $pickupName.',
             style: AppText.body,
           ),
           const SizedBox(height: Space.md),
-          if (booking.beThereBy != null)
+          if (waiting && booking.beThereBy != null)
             BoraCard(
               highlight: true,
               child: Row(children: [
@@ -882,7 +897,7 @@ class _TrackingSheet extends StatelessWidget {
               ]),
             ),
           const SizedBox(height: Space.sm),
-          if (booking.boardingCode != null)
+          if (waiting && booking.boardingCode != null)
             BoraCard(
               child: Row(
                 children: [
