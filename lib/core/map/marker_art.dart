@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import 'map_types.dart';
+import 'stop_pin.dart';
 
 /// Desenha os marcadores do Bora como imagem (o Google Maps só aceita bitmap).
 /// Tudo é pintado em pixels lógicos e multiplicado pela densidade da tela.
@@ -22,8 +23,8 @@ class MarkerArt {
 
   Future<MarkerImage> _paint(PinKind kind, String? label) async {
     return switch (kind) {
-      PinKind.stop => _render(const Size(26, 26), (c, s) => _busBadge(c, Offset(s.width / 2, s.height / 2), 22), anchor: const Offset(.5, .5)),
-      PinKind.stopNamed => _labeled(label ?? '', AppColors.surfaceRaised, AppColors.text, badge: true),
+      PinKind.stop => _render(StopPin.size, (c, s) => StopPin.paint(c), anchor: const Offset(.5, 1)),
+      PinKind.stopNamed => _namedStop(label ?? ''),
       PinKind.highlight => _labeled(label ?? '', AppColors.green, AppColors.night, badge: false),
       PinKind.car => _render(const Size(40, 40), (c, s) => _car(c, s, mine: false), anchor: const Offset(.5, .5)),
       PinKind.carMine => _render(const Size(44, 44), (c, s) => _car(c, s, mine: true), anchor: const Offset(.5, .5)),
@@ -79,6 +80,28 @@ class MarkerArt {
     c.drawCircle(center, 14, Paint()..color = const Color(0x3338BDF8));
     c.drawCircle(center, 8.5, Paint()..color = Colors.white);
     c.drawCircle(center, 6, Paint()..color = AppColors.user);
+  }
+
+  // Parada com nome: etiqueta escura em cima do ícone de parada (ponta da haste = ponto).
+  Future<MarkerImage> _namedStop(String text) {
+    final shown = text.length > 34 ? '${text.substring(0, 33)}…' : text;
+    final tp = TextPainter(
+      text: TextSpan(text: shown, style: const TextStyle(color: AppColors.text, fontSize: 12, fontWeight: FontWeight.w700, height: 1.2)),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    const padH = 8.0, padV = 4.0, gap = 2.0;
+    final w = math.max(tp.width + padH * 2, StopPin.size.width);
+    final h = tp.height + padV * 2;
+    final size = Size(w + 4, 2 + h + gap + StopPin.size.height);
+    return _render(size, (c, s) {
+      final box = RRect.fromRectAndRadius(Rect.fromLTWH(2, 2, w, h), const Radius.circular(8));
+      c.drawRRect(box.shift(const Offset(0, 1.5)), Paint()..color = const Color(0x55000000)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5));
+      c.drawRRect(box, Paint()..color = AppColors.surfaceRaised);
+      c.drawRRect(box, Paint()..color = AppColors.line..style = PaintingStyle.stroke..strokeWidth = 1);
+      tp.paint(c, Offset(2 + (w - tp.width) / 2, 2 + padV));
+      StopPin.paint(c, origin: Offset((s.width - StopPin.size.width) / 2, 2 + h + gap));
+    }, anchor: const Offset(.5, 1));
   }
 
   // Etiqueta com nome + ponteiro embaixo; o ponto de ancoragem é a ponta.

@@ -77,6 +77,8 @@ jobs:
       - name: Gerar o ícone do app
         run: dart run flutter_launcher_icons
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Conferir o estilo do mapa
+        run: flutter test test/map_theme_test.dart
 
       - name: Gerar APK
         run: |

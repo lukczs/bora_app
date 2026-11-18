@@ -5,12 +5,16 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:vector_map_tiles/vector_map_tiles.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/tokens.dart';
 import 'map_types.dart';
+import 'stop_pin.dart';
+import 'vector_base.dart';
 
-/// Mapa reserva (sem chave): OpenStreetMap padrão, um pouco menos saturado.
+/// Mapa sem chave do Google: base vetorial escura do OpenFreeMap (visual
+/// limpo, estilo Moovit). Se ela não carregar, cai no OpenStreetMap padrão.
 class OsmMapView extends StatefulWidget {
   const OsmMapView({
     super.key,
@@ -49,11 +53,23 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
   final _map = MapController();
   Timer? _idle;
   bool _moving = false;
+  VectorBase? _base = VectorBase.ready;
+  bool _baseFailed = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller?.attach(this);
+    if (_base == null) {
+      VectorBase.load().then((b) {
+        if (mounted) {
+          setState(() {
+            _base = b;
+            _baseFailed = b == null;
+          });
+        }
+      });
+    }
   }
 
   @override
@@ -116,7 +132,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
             : null,
         minZoom: 9,
         maxZoom: 19,
-        backgroundColor: const Color(0xFFE8E4DC),
+        backgroundColor: _baseFailed ? const Color(0xFFE8E4DC) : const Color(0xFF141D33),
         onPositionChanged: _onPos,
         onMapReady: () => _onPos(_map.camera, false),
         onTap: widget.onTap == null ? null : (_, p) => widget.onTap!(p),
@@ -125,13 +141,22 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
         ),
       ),
       children: [
-        TileLayer(
-          // Mapa padrão do OpenStreetMap: sem chave e com nomes de rua bem legíveis.
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'br.com.bora',
-          maxNativeZoom: 19,
-          tileBuilder: _softTiles,
-        ),
+        if (_base != null)
+          VectorTileLayer(
+            theme: _base!.theme,
+            tileProviders: _base!.providers,
+            layerMode: VectorTileLayerMode.raster,
+            maximumZoom: 19,
+            fileCacheTtl: const Duration(days: 14),
+          )
+        else if (_baseFailed)
+          TileLayer(
+            // Reserva da reserva: OpenStreetMap padrão, sem chave.
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'br.com.bora',
+            maxNativeZoom: 19,
+            tileBuilder: _softTiles,
+          ),
         PolylineLayer(polylines: [
           for (final l in widget.lines) ...[
             Polyline(points: l.points, strokeWidth: l.faint ? 5 : 8, color: AppColors.night),
@@ -139,8 +164,8 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
           ],
         ]),
         MarkerLayer(markers: [for (final p in widget.pins) _marker(p)]),
-        const SimpleAttributionWidget(
-          source: Text('© OpenStreetMap', style: TextStyle(fontSize: 10)),
+        SimpleAttributionWidget(
+          source: Text(_base != null ? VectorBase.attribution : '© OpenStreetMap', style: const TextStyle(fontSize: 10)),
           backgroundColor: AppColors.scrim,
           alignment: Alignment.bottomLeft,
         ),
@@ -152,8 +177,42 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
     Widget tap(Widget child) => p.onTap == null ? child : GestureDetector(onTap: p.onTap, child: child);
     switch (p.kind) {
       case PinKind.stop:
-        return Marker(point: p.point, width: 24, height: 24, child: tap(const _BusBadge(size: 22)));
+        return Marker(
+          point: p.point,
+          width: StopPin.size.width,
+          height: StopPin.size.height,
+          alignment: Alignment.topCenter,
+          child: tap(const StopPinIcon()),
+        );
       case PinKind.stopNamed:
+        // Nome numa etiqueta escura logo acima do ícone de parada.
+        return Marker(
+          point: p.point,
+          width: 200,
+          height: 66,
+          alignment: Alignment.topCenter,
+          child: tap(Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Container(
+                constraints: const BoxConstraints(maxWidth: 200),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceRaised,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.line),
+                  boxShadow: Shadows.soft,
+                ),
+                child: Text(p.label ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.text)),
+              ),
+              const SizedBox(height: 2),
+              const StopPinIcon(),
+            ],
+          )),
+        );
       case PinKind.highlight:
         final hl = p.kind == PinKind.highlight;
         return Marker(
@@ -162,7 +221,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
           height: 42,
           alignment: Alignment.topCenter,
           child: tap(Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
