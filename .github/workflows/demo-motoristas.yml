@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       acao:
-        description: 'publicar ou remover'
+        description: 'publicar, evento ou remover'
         type: choice
-        options: [publicar, remover]
+        options: [publicar, evento, remover]
         default: publicar
       saida_em_minutos:
         description: 'Daqui a quantos minutos o primeiro sai (os outros saem a cada 3 min)'

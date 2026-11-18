@@ -7,6 +7,7 @@ OpenRouteService e publica pela MESMA função que o app usa
 
 Uso (no GitHub Actions):
   python3 demo_rides.py publicar <minutos_ate_sair>  -> gera seed.sql
+  python3 demo_rides.py evento                       -> evento de teste com caronas de ida e volta
   python3 demo_rides.py remover                      -> gera seed.sql
 
 Variáveis: ORS_API_KEY.
@@ -89,7 +90,7 @@ def q(s):
 
 def cleanup_sql():
     ids = ",".join(q(uid(i + 1)) for i in range(len(DRIVERS)))
-    return f"""
+    return event_cleanup_sql() + f"""
 delete from driver_presence where user_id in ({ids});
 delete from ride_messages where ride_id in (select id from rides where driver_id in ({ids}));
 delete from bookings where ride_id in (select id from rides where driver_id in ({ids}));
@@ -99,6 +100,60 @@ delete from rides where driver_id in ({ids});
 delete from vehicles where owner_id in ({ids});
 delete from auth.users where id in ({ids});
 """
+
+
+# Evento de teste: Flamengo x Vasco no Mané Garrincha, daqui a 3 dias às 19h
+VENUE = ("Estádio Mané Garrincha", -15.7835, -47.8992)
+EVENT_RIDES = [  # (motorista, perna, lugar fora do estádio)
+    (2, "ida",   ("Asa Sul · 107", -15.8080, -47.8940)),
+    (3, "ida",   ("Taguatinga Centro", -15.8330, -48.0560)),
+    (4, "ida",   ("Guará II", -15.8360, -47.9810)),
+    (5, "ida",   ("Sobradinho", -15.6530, -47.7910)),
+    (3, "volta", ("Taguatinga Centro", -15.8330, -48.0560)),
+    (4, "volta", ("Gama", -16.0150, -48.0630)),
+]
+
+
+def event_cleanup_sql():
+    ids = ",".join(q(uid(i + 1)) for i in range(len(DRIVERS)))
+    return f"""
+delete from bookings where ride_id in (select id from rides where event_id in (select id from events where created_by in ({ids})));
+delete from ride_stops where ride_id in (select id from rides where event_id in (select id from events where created_by in ({ids})));
+delete from rides where event_id in (select id from events where created_by in ({ids}));
+delete from events where created_by in ({ids});
+"""
+
+
+def event_sql():
+    """Precisa dos motoristas de teste já criados (ação publicar)."""
+    out = ["begin;", "set local search_path = public, extensions;", event_cleanup_sql()]
+    start = "(date_trunc('day', now() at time zone 'America/Sao_Paulo') + interval '3 days 19 hours') at time zone 'America/Sao_Paulo'"
+    owner = uid(1)
+    out.append(f"""
+select set_config('request.jwt.claim.sub', {q(owner)}, true);
+select set_config('request.jwt.claims', {q(json.dumps({'sub': owner, 'role': 'authenticated'}))}, true);
+create temp table _ev on commit drop as
+select create_event('Flamengo x Vasco', 'esporte', {q(VENUE[0])}, {VENUE[1]}, {VENUE[2]},
+                    {start}, {start} + interval '2 hours', 'Portão 3 (Eixo Monumental)',
+                    'Evento de teste do Bora.', null) as id;
+""")
+    for n, (i, leg, place) in enumerate(EVENT_RIDES):
+        u = uid(i)
+        a, b = ((place[1], place[2]), (VENUE[1], VENUE[2])) if leg == "ida" else ((VENUE[1], VENUE[2]), (place[1], place[2]))
+        geom, dist, dur = route(a, b)
+        print(f"   {leg} {place[0]}: {dist/1000:.1f} km", file=sys.stderr)
+        dep = f"{start} - interval '{int(dur // 60) + 20} minutes'" if leg == "ida" else f"{start} + interval '2 hours 10 minutes'"
+        ol, dl = (place[0], VENUE[0]) if leg == "ida" else (VENUE[0], place[0])
+        out.append(f"""
+select set_config('request.jwt.claim.sub', {q(u)}, true);
+select set_config('request.jwt.claims', {q(json.dumps({'sub': u, 'role': 'authenticated'}))}, true);
+select {q(leg + ' ' + place[0])} as carona, publish_event_ride((select id from _ev), {q(leg)},
+  (select id from vehicles where owner_id = {q(u)}), {q(json.dumps(geom))}::jsonb, {q(ol)}, {q(dl)},
+  {dep}, 3, false)->>'stops' as paradas;
+""")
+    out.append("select 'código do evento: ' || invite_code from events where id = (select id from _ev);")
+    out.append("commit;")
+    return "\n".join(out)
 
 
 def publish_sql(minutes):
@@ -140,6 +195,10 @@ if __name__ == "__main__":
     action = sys.argv[1]
     if action == "remover":
         print("begin;\n" + cleanup_sql() + "\ncommit;")
+    elif action == "evento":
+        if not KEY:
+            sys.exit("Falta ORS_API_KEY")
+        print(event_sql())
     else:
         if not KEY:
             sys.exit("Falta ORS_API_KEY")
