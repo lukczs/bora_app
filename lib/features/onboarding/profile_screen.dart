@@ -20,8 +20,12 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final _form = GlobalKey<FormState>();
-  late final _first = TextEditingController(text: ref.read(storeProvider).me?.firstNameRaw ?? '');
-  late final _last = TextEditingController(text: ref.read(storeProvider).me?.lastName ?? '');
+  // Se entrou com Google, o nome já vem preenchido.
+  late final _googleName = (ref.read(storeProvider).authName ?? '').trim().split(RegExp(r'\s+'));
+  late final _first = TextEditingController(
+      text: ref.read(storeProvider).me?.firstNameRaw ?? (_googleName.first.isEmpty ? '' : _googleName.first));
+  late final _last = TextEditingController(
+      text: ref.read(storeProvider).me?.lastName ?? (_googleName.length > 1 ? _googleName.skip(1).join(' ') : ''));
   final _password = TextEditingController();
   bool _showPassword = false;
   late String _language = _deviceLanguage();

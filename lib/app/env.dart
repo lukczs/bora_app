@@ -14,8 +14,13 @@ class Env {
   /// Token da OpenRouteService (rotas e endereços). Vazio = recursos de rota desligados.
   static const orsApiKey = String.fromEnvironment('ORS_API_KEY');
 
-  /// Liga o botão "Continuar com Google" (precisa do provedor Google configurado no Supabase).
-  static const googleAuthEnabled = bool.fromEnvironment('GOOGLE_AUTH');
+  /// ID do cliente OAuth "Aplicativo da Web" do Google Cloud (o mesmo colocado no
+  /// Supabase). Com ele o botão "Continuar com Google" funciona, sem navegador.
+  static const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
+  static bool get googleAuthEnabled => googleWebClientId.isNotEmpty;
+
+  /// Código por SMS (precisa de provedor de SMS no Supabase). Desligado = só e-mail e Google.
+  static const smsEnabled = bool.fromEnvironment('SMS_ENABLED');
   static const appleAuthEnabled = bool.fromEnvironment('APPLE_AUTH');
   static const facebookAuthEnabled = bool.fromEnvironment('FACEBOOK_AUTH');
 

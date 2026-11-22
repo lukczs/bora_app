@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../core/widgets/step_scaffold.dart';
+import '../../data/errors.dart';
 import '../ratings/rating_sheet.dart';
 
 import '../communities/communities_tab.dart';
@@ -38,10 +40,45 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   void _maybeAskRatings() {
     if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
     final store = ref.read(storeProvider);
+    if (store.needsNewPassword) {
+      store.needsNewPassword = false;
+      Future.microtask(() {
+        if (mounted) _askNewPassword();
+      });
+      return;
+    }
     if (store.pendingRatings.any((p) => !store.skippedRatings.contains(p.bookingId))) {
       Future.microtask(() {
         if (mounted) askPendingRatings(context, ref);
       });
+    }
+  }
+
+  Future<void> _askNewPassword() async {
+    final c = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (d) => AlertDialog(
+        title: const Text('Crie uma senha nova'),
+        content: TextField(
+          controller: c,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Senha nova', helperText: 'Pelo menos 6 caracteres'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Depois')),
+          TextButton(onPressed: () => Navigator.pop(d, true), child: const Text('Salvar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ref.read(storeProvider).setPassword(c.text);
+      if (mounted) showBoraError(context, 'Senha nova salva.');
+    } catch (e) {
+      if (mounted) showBoraError(context, friendlyError(e));
     }
   }
 

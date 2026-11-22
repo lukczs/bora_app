@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../app/env.dart';
 
 import '../core/map/map_types.dart';
 import '../domain/models.dart';
@@ -18,6 +21,8 @@ class BoraStore extends ChangeNotifier {
   BoraStore(this._client) {
     _authSub = _client.auth.onAuthStateChange.listen((state) {
       if (state.event == AuthChangeEvent.tokenRefreshed) return;
+      // Abriu o link "esqueci a senha" do e-mail: pede uma senha nova
+      if (state.event == AuthChangeEvent.passwordRecovery) needsNewPassword = true;
       bootstrap();
     });
     bootstrap();
@@ -29,6 +34,9 @@ class BoraStore extends ChangeNotifier {
   static const _fallbackPosition = LatLng(-15.7938, -47.8828); // Rodoviária do Plano
 
   GateStatus status = GateStatus.loading;
+
+  /// Entrou pelo link de "esqueci a senha": a tela inicial pede a senha nova.
+  bool needsNewPassword = false;
 
   /// Só muda quando muda o "portão" (entrou, saiu, falta cadastro, pronto).
   /// O roteador escuta isto, e não o store inteiro: antes, cada atualização de
@@ -355,10 +363,42 @@ class BoraStore extends ChangeNotifier {
     }
   }
 
-  /// Login com Google pelo navegador; volta ao app pelo link br.com.bora://login-callback.
+  /// Login com Google nativo (escolhe a conta do celular, sem abrir navegador).
   Future<void> signInWithGoogle() async {
-    await _client.auth.signInWithOAuth(OAuthProvider.google, redirectTo: 'br.com.bora://login-callback');
+    final google = GoogleSignIn(serverClientId: Env.googleWebClientId, scopes: const ['email', 'profile']);
+    await google.signOut().catchError((_) => null); // sempre mostra a escolha de conta
+    final account = await google.signIn();
+    if (account == null) throw const BoraException('Login com Google cancelado.');
+    final auth = await account.authentication;
+    final idToken = auth.idToken;
+    if (idToken == null) {
+      throw const BoraException('O Google não devolveu a identificação. Confira o Client ID do app Android no Google Cloud.');
+    }
+    await _client.auth.signInWithIdToken(provider: OAuthProvider.google, idToken: idToken, accessToken: auth.accessToken);
   }
+
+  /// Nome que veio do Google (ou de outro login social), para já preencher o cadastro.
+  String? get authName {
+    final m = _client.auth.currentUser?.userMetadata;
+    return (m?['full_name'] ?? m?['name']) as String?;
+  }
+
+  /// Criar conta ou entrar com e-mail e senha.
+  Future<void> emailPasswordSignIn({required String email, required String password, required bool create}) async {
+    final e = email.trim().toLowerCase();
+    if (create) {
+      final res = await _client.auth.signUp(email: e, password: password);
+      if (res.session == null) {
+        // Supabase com "Confirm email" ligado: a conta existe mas precisa confirmar pelo link
+        throw const BoraException('Conta criada! Abra o link que enviamos para o seu e-mail e depois entre.');
+      }
+    } else {
+      await _client.auth.signInWithPassword(email: e, password: password);
+    }
+  }
+
+  Future<void> resetPassword(String email) =>
+      _client.auth.resetPasswordForEmail(email.trim().toLowerCase(), redirectTo: 'br.com.bora://login-callback');
 
   Future<void> signOut() async {
     _presenceTimer?.cancel();

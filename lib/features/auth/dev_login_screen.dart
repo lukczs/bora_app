@@ -35,7 +35,7 @@ class _DevLoginScreenState extends ConsumerState<DevLoginScreen> {
     try {
       await ref
           .read(storeProvider)
-          .devEmailSignIn(email: _email.text.trim(), password: _password.text, create: create);
+          .emailPasswordSignIn(email: _email.text.trim(), password: _password.text, create: create);
     } catch (e) {
       if (mounted) showBoraError(context, friendlyError(e));
     } finally {
