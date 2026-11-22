@@ -13,6 +13,7 @@ import '../../core/widgets/step_scaffold.dart';
 import '../../data/bora_store.dart';
 import '../../data/errors.dart';
 import '../../domain/models.dart';
+import '../ratings/rating_sheet.dart';
 
 /// A viagem do ponto de vista do motorista: rota, passageiros, editar e cancelar.
 class DriverRideScreen extends ConsumerStatefulWidget {
@@ -45,6 +46,7 @@ class _DriverRideScreenState extends ConsumerState<DriverRideScreen> {
       if (ride.status == RideStatus.open) await ref.read(storeProvider).startRide(ride.id);
       if (mounted) await context.push('/navigate/${ride.id}');
       if (mounted) await ref.read(storeProvider).refreshTrips();
+      if (mounted) await askPendingRatings(context, ref);
     } catch (e) {
       if (mounted) showBoraError(context, friendlyError(e));
     } finally {

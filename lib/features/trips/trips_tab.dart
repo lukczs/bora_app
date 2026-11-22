@@ -10,6 +10,7 @@ import '../../core/widgets/step_scaffold.dart';
 import '../../core/widgets/cards.dart';
 import '../../data/bora_store.dart';
 import '../../domain/models.dart';
+import '../ratings/rating_sheet.dart';
 
 /// Viagens: próximas, histórico e canceladas — como passageiro e como motorista.
 class TripsTab extends ConsumerStatefulWidget {
@@ -88,6 +89,28 @@ class _TripsTabState extends ConsumerState<TripsTab> {
             onSelectionChanged: (s) => setState(() => _view = s.first),
           ),
         ),
+        if (store.pendingRatings.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.md),
+            child: BoraCard(
+              onTap: () {
+                store.skippedRatings.clear();
+                askPendingRatings(context, ref);
+              },
+              child: Row(children: [
+                const Icon(Icons.star_rounded, color: AppColors.warning),
+                const SizedBox(width: Space.sm),
+                Expanded(
+                  child: Text(
+                      store.pendingRatings.length == 1
+                          ? 'Falta avaliar 1 viagem'
+                          : 'Faltam avaliar ${store.pendingRatings.length} viagens',
+                      style: AppText.bodyStrong),
+                ),
+                const Text('Avaliar', style: TextStyle(color: AppColors.green, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
         if (_view == _View.history && (doneRides + doneBookings) > 0)
           Padding(
             padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.md),

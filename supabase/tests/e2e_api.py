@@ -369,6 +369,16 @@ def main():
     step("Reserva da passageira fica concluída", lambda: require([b["status"] for b in save("my_bookings_done", p1.rpc("my_bookings")) if b["id"] == booking_p1] == ["completed"], "status errado"))
     step("stop_sharing_location", lambda: drv.rpc("stop_sharing_location"))
 
+    # ------------------------------------------------------------- avaliação
+    step("Passageira tem avaliação pendente do motorista", lambda: require(any(x["booking_id"] == booking_p1 and x["rated_role"] == "driver" for x in save("pending_ratings", p1.rpc("pending_ratings"))), "não apareceu"))
+    step("Motorista tem avaliação pendente da passageira", lambda: require(any(x["booking_id"] == booking_p1 and x["rated_role"] == "passenger" for x in drv.rpc("pending_ratings")), "não apareceu"))
+    step("Passageira avalia (rate_trip 5 estrelas)", lambda: p1.rpc("rate_trip", {"p_booking": booking_p1, "p_stars": 5, "p_tags": ["Pontual", "Direção segura"], "p_comment": "Tudo certo"}))
+    step("Motorista avalia (rate_trip 4 estrelas)", lambda: drv.rpc("rate_trip", {"p_booking": booking_p1, "p_stars": 4, "p_tags": ["Pontual"], "p_comment": None}))
+    step("Nota do motorista atualizada", lambda: require(float(drv.rpc("my_profile")["rating_avg"]) == 5.0, "média errada"))
+    step("Pendências somem depois de avaliar", lambda: require(not any(x["booking_id"] == booking_p1 for x in p1.rpc("pending_ratings")), "ainda pendente"))
+    if booking_p2:
+        step("Quem não embarcou não avalia", lambda: p2.rpc("rate_trip", {"p_booking": booking_p2, "p_stars": 1}), expect_error="cannot_rate")
+
 
 def report():
     ok = sum(1 for r in results if r[1])

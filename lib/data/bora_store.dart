@@ -155,12 +155,34 @@ class BoraStore extends ChangeNotifier {
   }
 
   /// Minhas viagens, minhas reservas e o panorama de viagens abertas.
+  /// Viagens concluídas que ainda não avaliei.
+  List<PendingRating> pendingRatings = const [];
+
+  /// Avaliações que a pessoa pulou nesta abertura do app (não pergunta de novo agora).
+  final Set<String> skippedRatings = {};
+
+  Future<void> rateTrip(String bookingId, int stars, {List<String> tags = const [], String? comment}) async {
+    await _client.rpc('rate_trip', params: {'p_booking': bookingId, 'p_stars': stars, 'p_tags': tags, 'p_comment': comment});
+    pendingRatings = pendingRatings.where((p) => p.bookingId != bookingId).toList();
+    notifyListeners();
+  }
+
   Future<void> refreshTrips() async {
     final results = await Future.wait<dynamic>([
       _client.rpc('my_rides'),
       _client.rpc('my_bookings'),
       _client.rpc('open_rides_overview'),
+      () async {
+        try {
+          return await _client.rpc('pending_ratings');
+        } catch (_) {
+          return const [];
+        }
+      }(),
     ]);
+    pendingRatings = [
+      for (final p in results[3] as List) PendingRating.fromMap(Map<String, dynamic>.from(p as Map)),
+    ];
     myRides = [for (final r in results[0] as List) Ride.fromMap(Map<String, dynamic>.from(r as Map))];
     myBookings = [for (final b in results[1] as List) Booking.fromMap(Map<String, dynamic>.from(b as Map))];
     openRidePaths = [

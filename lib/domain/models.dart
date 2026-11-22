@@ -671,3 +671,35 @@ class NavPlan {
     );
   }
 }
+
+/// Avaliação que eu ainda devo depois de uma viagem.
+class PendingRating {
+  const PendingRating({
+    required this.bookingId,
+    required this.rideId,
+    required this.ratingDriver,
+    required this.person,
+    this.when,
+    this.from,
+    this.to,
+  });
+  final String bookingId;
+  final String rideId;
+
+  /// true = eu fui de carona e avalio o motorista; false = eu dirigi e avalio o passageiro.
+  final bool ratingDriver;
+  final Person person;
+  final DateTime? when;
+  final String? from;
+  final String? to;
+
+  factory PendingRating.fromMap(Map<String, dynamic> m) => PendingRating(
+        bookingId: m['booking_id'] as String,
+        rideId: m['ride_id'] as String,
+        ratingDriver: m['rated_role'] == 'driver',
+        person: Person.fromMap(Map<String, dynamic>.from(m['person'] as Map)),
+        when: m['when'] == null ? null : DateTime.parse(m['when'] as String).toLocal(),
+        from: m['from'] as String?,
+        to: m['to'] as String?,
+      );
+}

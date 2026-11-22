@@ -31,6 +31,7 @@ void main() {
     'community_members_list': (j) => [for (final c in j as List) CommunityMemberView.fromMap(m(c))],
     'upcoming_events': (j) => [for (final e in j as List) BoraEvent.fromMap(m(e))],
     'event_json': (j) => BoraEvent.fromMap(m(j)),
+    'pending_ratings': (j) => [for (final x in j as List) PendingRating.fromMap(m(x))],
     'driver_navigation': (j) {
       final plan = NavPlan.fromMap(m(j));
       expect(plan.stops, isNotEmpty);

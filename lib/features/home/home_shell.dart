@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app/providers.dart';
+import '../ratings/rating_sheet.dart';
 
 import '../communities/communities_tab.dart';
 import '../events/events_tab.dart';
@@ -6,14 +10,40 @@ import '../profile/profile_tab.dart';
 import '../trips/trips_tab.dart';
 import 'map_tab.dart';
 
-class HomeShell extends StatefulWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
   @override
-  State<HomeShell> createState() => _HomeShellState();
+  ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Viagem acabou e falta avaliar? Pergunta quando a tela inicial estiver na frente.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(storeProvider).addListener(_maybeAskRatings);
+      _maybeAskRatings();
+    });
+  }
+
+  @override
+  void dispose() {
+    ref.read(storeProvider).removeListener(_maybeAskRatings);
+    super.dispose();
+  }
+
+  void _maybeAskRatings() {
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
+    final store = ref.read(storeProvider);
+    if (store.pendingRatings.any((p) => !store.skippedRatings.contains(p.bookingId))) {
+      Future.microtask(() {
+        if (mounted) askPendingRatings(context, ref);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
