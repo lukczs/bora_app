@@ -3,6 +3,7 @@
 #   SUPABASE_URL       = https://SEU-PROJETO.supabase.co
 #   SUPABASE_ANON_KEY  = chave "anon public" (Settings > API no Supabase)
 #   ORS_API_KEY        = token da OpenRouteService (rotas)
+#   MAPBOX_TOKEN       = token público do Mapbox (busca de comércios), opcional
 #   MAPS_API_KEY       = (opcional) chave do Google Maps SDK for Android.
 #                        Sem ela, o app usa o mapa escuro do OpenStreetMap.
 # Depois: aba Actions > "Gerar APK" > Run workflow. O APK sai em "Artifacts".
@@ -83,6 +84,13 @@ jobs:
       - name: Gerar o ícone do app
         run: dart run flutter_launcher_icons
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Conferir a busca do Mapbox (Casa Doce, 112 Sul)
+        env:
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+        run: |
+          if [ -z "$MAPBOX_TOKEN" ]; then echo "Sem MAPBOX_TOKEN: busca fica só na OpenRouteService"; exit 0; fi
+          curl -s "https://api.mapbox.com/search/searchbox/v1/forward?q=Casa%20Doce%20112%20Sul&language=pt&country=BR&limit=5&bbox=-48.7,-16.5,-47.0,-15.2&access_token=$MAPBOX_TOKEN" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('message') or '\n'.join('  ' + f['properties'].get('name','') + ' | ' + str(f['properties'].get('full_address') or f['properties'].get('place_formatted')) for f in d.get('features', [])) or '  nada encontrado')" || true
       - name: Conferir o estilo do mapa
         run: flutter test test/map_theme_test.dart
 
@@ -92,6 +100,7 @@ jobs:
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
             --dart-define=ORS_API_KEY=${{ secrets.ORS_API_KEY }} \
+            --dart-define=MAPBOX_TOKEN=${{ secrets.MAPBOX_TOKEN }} \
             --dart-define=GOOGLE_MAPS=$GOOGLE_MAPS
 
       - uses: actions/upload-artifact@v4

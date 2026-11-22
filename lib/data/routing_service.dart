@@ -129,9 +129,49 @@ class RoutingService {
   }
 
   /// Sugestões enquanto a pessoa digita.
+  /// Busca de lugares: primeiro no Mapbox (acha comércio pequeno, tipo
+  /// padaria e loja), depois na OpenRouteService se o Mapbox não achar ou falhar.
   Future<List<Place>> autocomplete(String text, {LatLng? near}) async {
-    _requireKey();
     if (text.trim().length < 3) return const [];
+    if (Env.mapboxToken.isNotEmpty) {
+      try {
+        final found = await _mapbox(text.trim(), near);
+        if (found.isNotEmpty) return found;
+      } catch (_) {
+        // sem Mapbox agora: segue para a OpenRouteService
+      }
+    }
+    return _orsAutocomplete(text, near: near);
+  }
+
+  Future<List<Place>> _mapbox(String text, LatLng? near) async {
+    final r = await _http.get(
+      Uri.parse('https://api.mapbox.com/search/searchbox/v1/forward').replace(queryParameters: {
+        'q': text,
+        'access_token': Env.mapboxToken,
+        'language': 'pt',
+        'country': 'BR',
+        'limit': '8',
+        'bbox': '$_minLon,$_minLat,$_maxLon,$_maxLat',
+        if (near != null) 'proximity': '${near.longitude},${near.latitude}',
+      }),
+    ).timeout(const Duration(seconds: 8));
+    if (r.statusCode >= 400) throw Exception('mapbox ${r.statusCode}');
+    final features = (jsonDecode(r.body)['features'] as List? ?? const []);
+    return [
+      for (final f in features)
+        if ((f as Map)['geometry']?['coordinates'] is List)
+          Place(
+            label: (f['properties']?['name'] as String?) ?? text,
+            detail: (f['properties']?['full_address'] ?? f['properties']?['place_formatted']) as String?,
+            point: LatLng(((f['geometry']['coordinates'] as List)[1] as num).toDouble(),
+                ((f['geometry']['coordinates'] as List)[0] as num).toDouble()),
+          ),
+    ];
+  }
+
+  Future<List<Place>> _orsAutocomplete(String text, {LatLng? near}) async {
+    _requireKey();
     final q = <String, String>{
       'text': text.trim(),
       'boundary.country': 'BR',

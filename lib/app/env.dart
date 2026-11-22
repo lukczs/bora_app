@@ -19,6 +19,9 @@ class Env {
   static const appleAuthEnabled = bool.fromEnvironment('APPLE_AUTH');
   static const facebookAuthEnabled = bool.fromEnvironment('FACEBOOK_AUTH');
 
+  /// Token público do Mapbox (busca de comércios e lugares). Vazio = busca só pela OpenRouteService.
+  static const mapboxToken = String.fromEnvironment('MAPBOX_TOKEN');
+
   /// Usa o Google Maps (o workflow liga quando existe o secret MAPS_API_KEY).
   static const googleMapsEnabled = bool.fromEnvironment('GOOGLE_MAPS');
 

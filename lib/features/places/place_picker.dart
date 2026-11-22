@@ -49,7 +49,7 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
 
   void _onChanged(String v) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () => _search(v));
+    _debounce = Timer(const Duration(milliseconds: 500), () => _search(v));
   }
 
   Future<void> _search(String v) async {
