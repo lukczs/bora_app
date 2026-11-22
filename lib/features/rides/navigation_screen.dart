@@ -81,6 +81,7 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
 
   void _stopEverything() {
     _closing = true;
+    _autoTimer?.cancel();
     _gps?.cancel();
     _poll?.cancel();
     _presence?.cancel();
@@ -357,9 +358,47 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
         if (pick.isNotEmpty) 'Pegue $pick.',
       ].join(' '));
     }
-    if ((_plan?.stops.isEmpty ?? false) && _metersToEnd < 100) {
-      _speak('end', 'Você chegou ao destino. Toque em encerrar corrida.');
+    _checkArrival();
+  }
+
+  // ------------------------------------------------------------------
+  // Chegou no ponto final: encerra sozinha depois de uma contagem
+  // ------------------------------------------------------------------
+  static const _autoSeconds = 15;
+  Timer? _autoTimer;
+  int _autoLeft = 0;
+  bool _autoDeclined = false; // motorista tocou "Ainda não"
+
+  void _checkArrival() {
+    final plan = _plan, here = _raw;
+    if (plan == null || here == null || _closing) return;
+    final toEnd = _dist.as(LengthUnit.Meter, here, plan.destination);
+    // só falta coisa no próprio destino (ou nada)?
+    final onlyAtEnd = plan.stops.every((s) => _dist.as(LengthUnit.Meter, s.point, plan.destination) < 150);
+    final arrived = toEnd < 60 && onlyAtEnd;
+    if (arrived && _autoTimer == null && !_autoDeclined) {
+      _speak('end', 'Você chegou ao destino. A corrida vai ser encerrada em $_autoSeconds segundos.');
+      setState(() => _autoLeft = _autoSeconds);
+      _autoTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+        if (!mounted || _closing) return t.cancel();
+        setState(() => _autoLeft--);
+        if (_autoLeft <= 0) {
+          t.cancel();
+          _finish(ask: false);
+        }
+      });
+    } else if (toEnd > 150) {
+      // saiu de perto do destino: cancela a contagem e volta a valer da próxima vez
+      _cancelAuto();
+      _autoDeclined = false;
     }
+  }
+
+  void _cancelAuto({bool declined = false}) {
+    _autoTimer?.cancel();
+    _autoTimer = null;
+    if (_autoLeft != 0 && mounted) setState(() => _autoLeft = 0);
+    if (declined) _autoDeclined = true;
   }
 
   void _speak(String key, String text) {
@@ -383,13 +422,15 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     }
   }
 
-  Future<void> _finish() async {
+  Future<void> _finish({bool ask = true}) async {
+    if (_closing) return;
+    _cancelAuto();
     final plan = _plan;
     final onboard = [
       for (final s in plan?.stops ?? const <NavStop>[]) for (final a in s.dropoffs) if (a.status == BookingStatus.boarded) a.name
     ];
     final waiting = [for (final s in plan?.stops ?? const <NavStop>[]) for (final a in s.pickups) a.name];
-    final ok = await showDialog<bool>(
+    final ok = !ask ? true : await showDialog<bool>(
       context: context,
       builder: (d) => AlertDialog(
         backgroundColor: AppColors.surface,
@@ -564,6 +605,8 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
                 onNoShow: (a) => _act(() => ref.read(storeProvider).passengerNoShow(a.bookingId)),
                 onDrop: (a) => _act(() => ref.read(storeProvider).dropPassenger(a.bookingId)),
                 onFinish: _finish,
+                autoLeft: _autoLeft,
+                onKeepGoing: () => _cancelAuto(declined: true),
               ),
             ),
           ),
@@ -704,7 +747,11 @@ class _NavPanel extends StatelessWidget {
     required this.onNoShow,
     required this.onDrop,
     required this.onFinish,
+    this.autoLeft = 0,
+    this.onKeepGoing,
   });
+  final int autoLeft;
+  final VoidCallback? onKeepGoing;
   final NavPlan plan;
   final double metersToStop;
   final double metersToEnd;
@@ -735,6 +782,25 @@ class _NavPanel extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (autoLeft > 0) ...[
+            Container(
+              padding: const EdgeInsets.all(Space.sm),
+              decoration: BoxDecoration(color: AppColors.green, borderRadius: BorderRadius.circular(Radii.md)),
+              child: Row(children: [
+                const Icon(Icons.flag, color: AppColors.night),
+                const SizedBox(width: Space.xs),
+                Expanded(
+                  child: Text('Você chegou! Encerrando a corrida em $autoLeft s',
+                      style: const TextStyle(color: AppColors.night, fontWeight: FontWeight.w700)),
+                ),
+                TextButton(
+                  onPressed: onKeepGoing,
+                  child: const Text('Ainda não', style: TextStyle(color: AppColors.night, fontWeight: FontWeight.w800)),
+                ),
+              ]),
+            ),
+            const SizedBox(height: Space.sm),
+          ],
           // Chegada no destino final
           Row(children: [
             Text(formatTime(eta), style: AppText.title.copyWith(color: AppColors.green)),

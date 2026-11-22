@@ -33,7 +33,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     initialLocation: '/splash',
-    refreshListenable: store,
+    refreshListenable: store.gate,
     redirect: (context, state) {
       final path = state.matchedLocation;
       final inAuth = const ['/welcome', '/signup', '/login', '/verify', '/dev-login'].contains(path);

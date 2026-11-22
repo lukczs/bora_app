@@ -29,6 +29,12 @@ class BoraStore extends ChangeNotifier {
   static const _fallbackPosition = LatLng(-15.7938, -47.8828); // Rodoviária do Plano
 
   GateStatus status = GateStatus.loading;
+
+  /// Só muda quando muda o "portão" (entrou, saiu, falta cadastro, pronto).
+  /// O roteador escuta isto, e não o store inteiro: antes, cada atualização de
+  /// dados (ex.: depois de encerrar a corrida) fazia o roteador remontar a
+  /// pilha de telas e a navegação voltava sozinha.
+  final gate = ValueNotifier<GateStatus>(GateStatus.loading);
   String? failure;
 
   AppUser? me;
@@ -116,6 +122,7 @@ class BoraStore extends ChangeNotifier {
 
   void _set(GateStatus s) {
     status = s;
+    gate.value = s;
     notifyListeners();
   }
 
