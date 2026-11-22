@@ -54,7 +54,7 @@ const _messages = <String, String>{
   'violates foreign key': 'Este carro está ligado a uma viagem e não pode ser excluído.',
   'Token has expired or is invalid': 'Código incorreto ou expirado. Peça um novo.',
   'Invalid login credentials': 'E-mail ou senha incorretos.',
-  'Email not confirmed': 'Confirme o e-mail antes de entrar (ou desative a confirmação no painel do Supabase).',
+  'Email not confirmed': 'Esse e-mail ainda não foi confirmado. Abra o link que enviamos e tente de novo.',
   'User already registered': 'Este e-mail já tem conta. Use "Entrar".',
   'Signups not allowed for otp': 'Não encontramos uma conta com esse contato. Toque em "Criar conta".',
   'otp_expired': 'Código vencido. Peça outro.',
@@ -62,9 +62,6 @@ const _messages = <String, String>{
   'email rate limit exceeded': 'Muitos e-mails enviados agora. Tente de novo em alguns minutos ou use o celular.',
   'Unsupported phone provider': 'O envio de SMS ainda não está configurado no Supabase. Use o e-mail por enquanto.',
   'Password should be at least': 'A senha precisa ter pelo menos 6 caracteres.',
-  'Invalid login credentials': 'E-mail ou senha errados.',
-  'User already registered': 'Esse e-mail já tem conta. Toque em "Já tenho conta" e entre.',
-  'Email not confirmed': 'Esse e-mail ainda não foi confirmado.',
   'Unacceptable audience in id_token': 'O login com Google ainda não foi ligado no Supabase (Client ID).',
   'Provider (issuer "https://accounts.google.com") is not enabled': 'O login com Google ainda não foi ligado no Supabase.',
 };
