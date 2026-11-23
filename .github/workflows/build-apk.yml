@@ -20,6 +20,9 @@ on:
       - '.github/workflows/supabase-*.yml'
       - '.github/workflows/demo-*.yml'
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -122,3 +125,14 @@ jobs:
         with:
           name: bora-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Publicar link público de download
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk bora.apk
+          gh release delete baixar-apk --yes --cleanup-tag 2>/dev/null || true
+          gh release create baixar-apk bora.apk \
+            --title "Bora - baixar APK" \
+            --notes "Link sempre atualizado com a última versão do app. Baixe bora.apk e instale no celular (pode precisar permitir 'instalar de fontes desconhecidas')." \
+            --latest
+        env:
+          GH_TOKEN: ${{ github.token }}
