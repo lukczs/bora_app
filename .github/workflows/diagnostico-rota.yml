@@ -1,0 +1,34 @@
+# Testa a chave da OpenRouteService (rota do motorista) direto, sem
+# precisar abrir o app. Roda manualmente: aba Actions > "Diagnóstico de rota" > Run workflow.
+name: Diagnóstico de rota
+
+on:
+  workflow_dispatch:
+
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Testar chave ORS_API_KEY (rota real no DF)
+        env:
+          ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
+        run: |
+          if [ -z "$ORS_API_KEY" ]; then
+            echo "::error::ORS_API_KEY não está configurada nos secrets do repositório."
+            exit 1
+          fi
+          echo "Tamanho da chave: ${#ORS_API_KEY} caracteres"
+          http_code=$(curl -s -o /tmp/ors.json -w "%{http_code}" \
+            -X POST "https://api.openrouteservice.org/v2/directions/driving-car/geojson" \
+            -H "Authorization: $ORS_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"coordinates":[[-47.9292,-15.7801],[-47.8825,-15.8267]]}')
+          echo "HTTP status: $http_code"
+          echo "--- resposta ---"
+          cat /tmp/ors.json
+          echo ""
+          if [ "$http_code" != "200" ]; then
+            echo "::error::A chave ORS_API_KEY falhou (status $http_code acima)."
+            exit 1
+          fi
+          echo "OK: a chave de rotas está funcionando."
