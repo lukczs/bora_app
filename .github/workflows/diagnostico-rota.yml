@@ -19,7 +19,7 @@ jobs:
           fi
           echo "Tamanho da chave: ${#ORS_API_KEY} caracteres"
           http_code=$(curl -s -o /tmp/ors.json -w "%{http_code}" \
-            -X POST "https://api.openrouteservice.org/v2/directions/driving-car/geojson" \
+            -X POST "https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson" \
             -H "Authorization: $ORS_API_KEY" \
             -H "Content-Type: application/json" \
             -d '{"coordinates":[[-47.9292,-15.7801],[-47.8825,-15.8267]]}')

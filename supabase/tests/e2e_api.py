@@ -123,7 +123,7 @@ def iso(d):
 def ors_route(a, b):
     """Mesma chamada do RoutingService do app (geojson, sem instruções)."""
     body = {"coordinates": [[a[1], a[0]], [b[1], b[0]]], "instructions": False}
-    f = _http("POST", "https://api.openrouteservice.org/v2/directions/driving-car/geojson", body,
+    f = _http("POST", "https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson", body,
               {"Authorization": ORS_KEY, "Content-Type": "application/json",
                "Accept": "application/json, application/geo+json"})["features"][0]
     return f["geometry"]
@@ -132,7 +132,7 @@ def ors_route(a, b):
 def ors_nav(points):
     """Rota com instruções em português (usada na navegação do motorista)."""
     body = {"coordinates": [[p[1], p[0]] for p in points], "instructions": True, "language": "pt"}
-    f = _http("POST", "https://api.openrouteservice.org/v2/directions/driving-car/geojson", body,
+    f = _http("POST", "https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson", body,
               {"Authorization": ORS_KEY, "Content-Type": "application/json",
                "Accept": "application/json, application/geo+json"})["features"][0]
     return f

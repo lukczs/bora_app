@@ -21,7 +21,11 @@ import sys
 import urllib.parse
 import urllib.request
 
-ORS = "https://api.openrouteservice.org"
+# Desde 2026-11-24 a HeiGIT desativou api.openrouteservice.org de vez;
+# as rotas (v2/directions) e a busca de endereço (geocode) agora vivem
+# em caminhos separados sob api.heigit.org.
+ORS = "https://api.heigit.org/openrouteservice"
+PELIAS = "https://api.heigit.org/pelias/v1"
 KEY = __import__("os").environ.get("ORS_API_KEY", "")
 
 # (nome, gênero, carro, placa, cor, vagas, origem, destino)
@@ -65,7 +69,7 @@ def geocode(text, fallback):
         q = urllib.parse.urlencode({"text": text, "boundary.country": "BR", "size": 1,
                                     "boundary.rect.min_lon": -48.3, "boundary.rect.max_lon": -47.3,
                                     "boundary.rect.min_lat": -16.1, "boundary.rect.max_lat": -15.5})
-        f = http(f"{ORS}/geocode/search?{q}")["features"]
+        f = http(f"{PELIAS}/search?{q}")["features"]
         if f:
             lng, lat = f[0]["geometry"]["coordinates"]
             label = f[0]["properties"].get("label")

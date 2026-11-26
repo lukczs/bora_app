@@ -14,7 +14,11 @@ class RoutingService {
   RoutingService({http.Client? client}) : _http = client ?? http.Client();
   final http.Client _http;
 
-  static const _base = 'https://api.openrouteservice.org';
+  // Em 2026-11-24 a HeiGIT (dona da OpenRouteService) desativou de vez o
+  // domínio antigo api.openrouteservice.org e moveu tudo pra api.heigit.org
+  // num caminho por serviço. A chave continua a mesma, só mudou a URL.
+  static const _base = 'https://api.heigit.org/openrouteservice';
+  static const _peliasBase = 'https://api.heigit.org/pelias/v1';
 
   // Caixa do DF e Entorno: as sugestões ficam por aqui.
   static const _minLon = -48.7, _minLat = -16.5, _maxLon = -47.0, _maxLat = -15.2;
@@ -185,7 +189,7 @@ class RoutingService {
       if (near != null) 'focus.point.lat': '${near.latitude}',
     };
     final r = await _http
-        .get(Uri.parse('$_base/geocode/autocomplete').replace(queryParameters: q), headers: _headers)
+        .get(Uri.parse('$_peliasBase/autocomplete').replace(queryParameters: q), headers: _headers)
         .timeout(const Duration(seconds: 10));
     _check(r);
     return _places(r.body);
@@ -198,7 +202,7 @@ class RoutingService {
     try {
       final r = await _http
           .get(
-              Uri.parse('$_base/geocode/reverse').replace(queryParameters: {
+              Uri.parse('$_peliasBase/reverse').replace(queryParameters: {
                 'point.lon': '${p.longitude}',
                 'point.lat': '${p.latitude}',
                 'size': '1',
