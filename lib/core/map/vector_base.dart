@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:vector_map_tiles/vector_map_tiles.dart';
 import 'package:vector_tile_renderer/vector_tile_renderer.dart' as vtr;
 
+import '../../app/env.dart';
+
 /// Mapa base vetorial do OpenFreeMap (grátis, sem chave e sem limite),
 /// pintado com o estilo escuro do Bora em assets/map/bora_dark.json.
 ///
@@ -36,13 +38,13 @@ class VectorBase {
       final providers = <String, VectorTileProvider>{};
       for (final source in (style['sources'] as Map<String, dynamic>).entries) {
         final url = (source.value as Map<String, dynamic>)['url'] as String;
-        final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+        final res = await http.get(Uri.parse(Env.tileUrl(url))).timeout(const Duration(seconds: 10));
         if (res.statusCode != 200) return null;
         final tileJson = jsonDecode(res.body) as Map<String, dynamic>;
         final tiles = (tileJson['tiles'] as List).cast<String>();
         if (tiles.isEmpty) return null;
         providers[source.key] = NetworkVectorTileProvider(
-          urlTemplate: tiles.first,
+          urlTemplate: Env.tileUrl(tiles.first),
           maximumZoom: (tileJson['maxzoom'] as num?)?.toInt() ?? 14,
           minimumZoom: 0,
         );

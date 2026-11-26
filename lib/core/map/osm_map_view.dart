@@ -7,6 +7,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:vector_map_tiles/vector_map_tiles.dart';
 
+import '../../app/env.dart';
 import '../theme/app_colors.dart';
 import '../theme/tokens.dart';
 import 'map_types.dart';
@@ -172,7 +173,7 @@ class _OsmMapViewState extends State<OsmMapView> implements BoraMapDelegate {
         else if (_baseFailed)
           TileLayer(
             // Reserva da reserva: OpenStreetMap padrão, sem chave.
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            urlTemplate: Env.tileUrl('https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
             userAgentPackageName: 'br.com.bora',
             maxNativeZoom: 19,
             tileBuilder: _softTiles,
