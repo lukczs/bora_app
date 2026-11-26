@@ -1,0 +1,65 @@
+# Gera a versão web do Bora (dá pra abrir no navegador, PC ou celular) e
+# publica no GitHub Pages. Aba Actions > "Gerar site (web)" > Run workflow.
+name: Gerar site (web)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Criar a parte web do projeto
+        run: |
+          mkdir -p /tmp/keep
+          cp -r lib assets pubspec.yaml /tmp/keep/
+          flutter create --org br.com.bora --project-name bora --platforms web .
+          rm -rf lib
+          cp -r /tmp/keep/lib /tmp/keep/assets .
+          cp /tmp/keep/pubspec.yaml .
+
+      - name: Login com Google no navegador
+        if: ${{ env.GOOGLE_WEB_CLIENT_ID != '' }}
+        env:
+          GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          sed -i "s#</head>#  <meta name=\"google-signin-client_id\" content=\"$GOOGLE_WEB_CLIENT_ID\">\n</head>#" web/index.html
+
+      - run: flutter pub get
+
+      - name: Gerar o site
+        run: |
+          flutter build web --release \
+            --base-href "/bora_app/" \
+            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+            --dart-define=ORS_API_KEY=${{ secrets.ORS_API_KEY }} \
+            --dart-define=MAPBOX_TOKEN=${{ secrets.MAPBOX_TOKEN }} \
+            --dart-define=GOOGLE_WEB_CLIENT_ID=${{ secrets.GOOGLE_WEB_CLIENT_ID }} \
+            --dart-define=GOOGLE_MAPS=false
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      - uses: actions/deploy-pages@v4
+        id: deployment
